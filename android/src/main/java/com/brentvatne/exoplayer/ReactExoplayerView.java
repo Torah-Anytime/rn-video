@@ -1316,59 +1316,53 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    private static class OnAudioFocusChangedListener implements AudioManager.OnAudioFocusChangeListener {
-        private final ReactExoplayerView view;
-        private final ThemedReactContext themedReactContext;
-
-        private OnAudioFocusChangedListener(ReactExoplayerView view, ThemedReactContext themedReactContext) {
-            this.view = view;
-            this.themedReactContext = themedReactContext;
-        }
+    private record OnAudioFocusChangedListener(ReactExoplayerView view,
+                                               ThemedReactContext themedReactContext) implements AudioManager.OnAudioFocusChangeListener {
 
         @Override
-        public void onAudioFocusChange(int focusChange) {
-            Activity activity = themedReactContext.getCurrentActivity();
-
-            switch (focusChange) {
-                case AudioManager.AUDIOFOCUS_LOSS:
-                    view.hasAudioFocus = false;
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
-                    if (activity != null) {
-                        activity.runOnUiThread(view::pausePlayback);
-                    }
-                    view.audioManager.abandonAudioFocus(this);
-                    break;
-                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    break;
-                case AudioManager.AUDIOFOCUS_GAIN:
-                    view.hasAudioFocus = true;
-                    view.eventEmitter.onAudioFocusChanged.invoke(true);
-                    break;
-                default:
-                    break;
-            }
-
-            if (view.player != null && activity != null) {
-                if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                    // Lower the volume
-                    if (!view.muted) {
-                        activity.runOnUiThread(() ->
-                                view.player.setVolume(view.audioVolume * 0.8f)
-                        );
-                    }
-                } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
-                    // Raise it back to normal
-                    if (!view.muted) {
-                        activity.runOnUiThread(() ->
-                                view.player.setVolume(view.audioVolume * 1)
-                        );
+            public void onAudioFocusChange(int focusChange) {
+                Activity activity = themedReactContext.getCurrentActivity();
+    
+                switch (focusChange) {
+                    case AudioManager.AUDIOFOCUS_LOSS:
+                        view.hasAudioFocus = false;
+                        view.eventEmitter.onAudioFocusChanged.invoke(false);
+                        // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
+                        if (activity != null) {
+                            activity.runOnUiThread(view::pausePlayback);
+                        }
+                        view.audioManager.abandonAudioFocus(this);
+                        break;
+                    case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                        view.eventEmitter.onAudioFocusChanged.invoke(false);
+                        break;
+                    case AudioManager.AUDIOFOCUS_GAIN:
+                        view.hasAudioFocus = true;
+                        view.eventEmitter.onAudioFocusChanged.invoke(true);
+                        break;
+                    default:
+                        break;
+                }
+    
+                if (view.player != null && activity != null) {
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                        // Lower the volume
+                        if (!view.muted) {
+                            activity.runOnUiThread(() ->
+                                    view.player.setVolume(view.audioVolume * 0.8f)
+                            );
+                        }
+                    } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
+                        // Raise it back to normal
+                        if (!view.muted) {
+                            activity.runOnUiThread(() ->
+                                    view.player.setVolume(view.audioVolume * 1)
+                            );
+                        }
                     }
                 }
             }
         }
-    }
 
     private boolean requestAudioFocus() {
         if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
@@ -1895,8 +1889,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
                 String value = "";
 
-                if (frame instanceof TextInformationFrame) {
-                    TextInformationFrame txxxFrame = (TextInformationFrame) frame;
+                if (frame instanceof TextInformationFrame txxxFrame) {
                     value = txxxFrame.value;
                 }
                 TimedMetadata timedMetadata = new TimedMetadata(frame.id, value);
@@ -2417,10 +2410,6 @@ public class ReactExoplayerView extends FrameLayout implements
         bufferingStrategy = _bufferingStrategy;
     }
 
-    public boolean getPreventsDisplaySleepDuringVideoPlayback() {
-        return preventsDisplaySleepDuringVideoPlayback;
-    }
-
     private void updateFullScreenButtonVisibility() {
         if (playerControlView != null) {
             final ImageButton fullScreenButton = playerControlView.findViewById(R.id.exo_fullscreen);
@@ -2453,8 +2442,8 @@ public class ReactExoplayerView extends FrameLayout implements
         if (isFullscreen) {
             eventEmitter.onVideoFullscreenPlayerWillPresent.invoke();
 
-            // Before launching fullscreen, save the current playback state
-            boolean wasPlaying = player != null && player.getPlayWhenReady();
+            // Note: We're NOT pausing the player here anymore!
+            // Just store the current state to maintain consistency
 
             // Launch the fullscreen activity
             Intent intent = new Intent(themedReactContext, ExoPlayerFullscreenVideoActivity.class);
@@ -2487,8 +2476,8 @@ public class ReactExoplayerView extends FrameLayout implements
             Activity currentActivity = themedReactContext.getCurrentActivity();
             if (currentActivity instanceof ExoPlayerFullscreenVideoActivity) {
                 currentActivity.finish();
+            }
 
-    }
             // Set the reference to null
             fullScreenPlayerView = null;
 
@@ -2510,10 +2499,6 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    public ExoPlayerView getExoPlayerView() {
-        return exoPlayerView;
-    }
-
     // Add this static method to ReactExoplayerView to allow the fullscreen activity to get the view instance
     private static final ConcurrentHashMap<Integer, ReactExoplayerView> viewInstances = new ConcurrentHashMap<>();
 
@@ -2530,22 +2515,6 @@ public class ReactExoplayerView extends FrameLayout implements
     // Add accessor methods needed by the fullscreen activity
     public Player getPlayer() {
         return player;
-    }
-
-    public void syncPlayerState() {
-        // This is called when returning from fullscreen to ensure state consistency
-        if (player != null) {
-            // Ensure the ExoPlayerView is reconnected to the player
-            if (exoPlayerView != null) {
-                // Remove and re-add the player to ensure proper surface view
-                exoPlayerView.clearVideoView();
-                exoPlayerView.setPlayer(player);
-                exoPlayerView.setVideoView();
-
-                // Refresh controls and styles
-                refreshControlsStyles();
-            }
-        }
     }
 
     public void setHideShutterView(boolean hideShutterView) {

@@ -40,8 +40,6 @@ class ExoPlayerView : FrameLayout, AdViewProvider {
         ViewGroup.LayoutParams.MATCH_PARENT
     )
     private var adOverlayFrameLayout: FrameLayout? = null
-    val isPlaying: Boolean
-        get() = player != null && player?.isPlaying == true
 
     @ViewType.ViewType
     private var viewType = ViewType.VIEW_TYPE_SURFACE
@@ -96,7 +94,7 @@ class ExoPlayerView : FrameLayout, AdViewProvider {
         }
     }
 
-    fun clearVideoView() {
+    private fun clearVideoView() {
         Log.d("ExoPlayerView", "Clearing video view: $surfaceView")
         try {
             when (val view = surfaceView) {
@@ -124,7 +122,7 @@ class ExoPlayerView : FrameLayout, AdViewProvider {
         }
     }
 
-    fun setVideoView() {
+    private fun setVideoView() {
         Log.d("ExoPlayerView", "Setting video view: $surfaceView")
         try {
             when (val view = surfaceView) {

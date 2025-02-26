@@ -16,9 +16,8 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.LegacyPlayerControlView
 import com.brentvatne.common.api.ControlsConfig
-import com.brentvatne.common.api.ResizeMode
-import com.brentvatne.common.api.ViewType
 import com.brentvatne.react.R
+import kotlin.math.abs
 
 @UnstableApi
 class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
@@ -31,7 +30,7 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private var originalPlayerWasPlaying = false
     private var syncingState = false
-    private var audioMuted = true // Always start with audio muted on the fullscreen player
+    private var stateBeforeStop: Boolean? = null // To store the playback state before onStop
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val stateCheckHandler = Handler(Looper.getMainLooper())
@@ -54,11 +53,11 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
             finishWithError()
             return
         }
+        
+        originalPlayerWasPlaying = reactExoplayerView?.player?.playWhenReady ?: false
 
-        // IMPORTANT: Pause the original player to prevent audio duplication
-        val wasPlaying = reactExoplayerView?.player?.isPlaying ?: false
-        originalPlayerWasPlaying = wasPlaying
-        reactExoplayerView?.player?.playWhenReady = false // Pause original player
+        // Instead of pausing the original player, we'll let audio continue
+        // and just mute our clone player to avoid echo
 
         // Keep the screen on during playback
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -105,8 +104,7 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
             val originalPlayer = reactExoplayerView?.player as? ExoPlayer ?: return
 
             // Get initial playback state
-            val wasPlaying = originalPlayer.isPlaying
-            originalPlayerWasPlaying = wasPlaying
+            originalPlayerWasPlaying = originalPlayer.playWhenReady
 
             // Create a new player that matches the original
             val renderersFactory = DefaultRenderersFactory(this)
@@ -186,7 +184,7 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
             }
 
             // Check if position has changed significantly in original player
-            val posDifference = Math.abs((originalPlayer?.currentPosition ?: 0) -
+            val posDifference = abs((originalPlayer?.currentPosition ?: 0) -
                 (fullscreenPlayer?.currentPosition ?: 0))
             if (posDifference > 2000) { // More than 2 seconds difference
                 fullscreenPlayer?.seekTo(originalPlayer?.currentPosition ?: 0)
@@ -269,14 +267,26 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         isShowing = true
-        player?.playWhenReady = originalPlayerWasPlaying
+
+        // Restore state after returning from background
+        if (stateBeforeStop != null) {
+            player?.playWhenReady = stateBeforeStop!!
+            stateBeforeStop = null
+        } else {
+            player?.playWhenReady = originalPlayerWasPlaying
+        }
     }
 
-    override fun onPause() {
-        super.onPause()
-        // Store current state before pausing
-        originalPlayerWasPlaying = player?.playWhenReady ?: false
-        player?.playWhenReady = false
+    // This is called when activity is no longer visible (app is backgrounded)
+    override fun onStop() {
+        super.onStop()
+        // Store the current playback state but DO NOT pause if we don't want to
+        stateBeforeStop = player?.playWhenReady
+
+        // If you want background playback, comment out this line:
+        // player?.playWhenReady = false
+
+        // If you want media to continue playing in background, keep the player going
     }
 
     override fun onDestroy() {
@@ -345,7 +355,8 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
         // Stop checking state
         stateCheckHandler.removeCallbacks(stateCheckRunnable)
 
-        // Restore the original player's state (delayed to ensure activity transition completes)
+        // We don't need to restore the playback state because we never paused the original player
+        // But we will update it in case the state changed while in fullscreen
         mainHandler.postDelayed({
             reactExoplayerView?.player?.playWhenReady = originalPlayerWasPlaying
         }, 100)
