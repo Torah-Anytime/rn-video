@@ -1,6 +1,7 @@
 package com.brentvatne.exoplayer
 
 import android.content.Context
+import android.util.AttributeSet
 import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
@@ -26,24 +27,19 @@ import com.brentvatne.common.api.ViewType
 import com.brentvatne.common.toolbox.DebugLog
 
 @UnstableApi
-class ExoPlayerView(private val context: Context) :
-    FrameLayout(context, null, 0),
-    AdViewProvider {
-
+class ExoPlayerView : FrameLayout, AdViewProvider {
     var surfaceView: View? = null
         private set
-    private var shutterView: View
-    private var subtitleLayout: SubtitleView
-    private var layout: AspectRatioFrameLayout
-    private var componentListener: ComponentListener
+    private lateinit var shutterView: View
+    private lateinit var subtitleLayout: SubtitleView
+    private lateinit var layout: AspectRatioFrameLayout
+    private lateinit var componentListener: ComponentListener
     private var player: ExoPlayer? = null
-    private var layoutParams: ViewGroup.LayoutParams = ViewGroup.LayoutParams(
+    private val layoutParams: ViewGroup.LayoutParams = ViewGroup.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT
     )
     private var adOverlayFrameLayout: FrameLayout? = null
-    val isPlaying: Boolean
-        get() = player != null && player?.isPlaying == true
 
     @ViewType.ViewType
     private var viewType = ViewType.VIEW_TYPE_SURFACE
@@ -51,7 +47,21 @@ class ExoPlayerView(private val context: Context) :
 
     private var localStyle = SubtitleStyle()
 
-    init {
+    // Add required constructors for XML inflation
+    constructor(context: Context) : super(context) {
+        init(context)
+    }
+
+    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs) {
+        init(context)
+    }
+
+    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) : super(context, attrs, defStyleAttr) {
+        init(context)
+    }
+
+    // Initialize common components
+    private fun init(context: Context) {
         componentListener = ComponentListener()
 
         val aspectRatioParams = LayoutParams(
@@ -85,32 +95,58 @@ class ExoPlayerView(private val context: Context) :
     }
 
     private fun clearVideoView() {
-        when (val view = surfaceView) {
-            is TextureView -> player?.clearVideoTextureView(view)
-
-            is SurfaceView -> player?.clearVideoSurfaceView(view)
-
-            else -> {
-                Log.w(
-                    "clearVideoView",
-                    "Unexpected surfaceView type: ${surfaceView?.javaClass?.name}"
-                )
+        Log.d("ExoPlayerView", "Clearing video view: $surfaceView")
+        try {
+            when (val view = surfaceView) {
+                is TextureView -> {
+                    if (player != null) {
+                        player?.clearVideoTextureView(view)
+                        Log.d("ExoPlayerView", "Cleared TextureView from player")
+                    }
+                }
+                is SurfaceView -> {
+                    if (player != null) {
+                        player?.clearVideoSurfaceView(view)
+                        Log.d("ExoPlayerView", "Cleared SurfaceView from player")
+                    }
+                }
+                else -> {
+                    Log.w(
+                        "ExoPlayerView",
+                        "Unexpected surfaceView type: ${surfaceView?.javaClass?.name}"
+                    )
+                }
             }
+        } catch (e: Exception) {
+            Log.e("ExoPlayerView", "Error clearing video view", e)
         }
     }
 
     private fun setVideoView() {
-        when (val view = surfaceView) {
-            is TextureView -> player?.setVideoTextureView(view)
-
-            is SurfaceView -> player?.setVideoSurfaceView(view)
-
-            else -> {
-                Log.w(
-                    "setVideoView",
-                    "Unexpected surfaceView type: ${surfaceView?.javaClass?.name}"
-                )
+        Log.d("ExoPlayerView", "Setting video view: $surfaceView")
+        try {
+            when (val view = surfaceView) {
+                is TextureView -> {
+                    if (player != null) {
+                        player?.setVideoTextureView(view)
+                        Log.d("ExoPlayerView", "Set TextureView to player")
+                    }
+                }
+                is SurfaceView -> {
+                    if (player != null) {
+                        player?.setVideoSurfaceView(view)
+                        Log.d("ExoPlayerView", "Set SurfaceView to player")
+                    }
+                }
+                else -> {
+                    Log.w(
+                        "ExoPlayerView",
+                        "Unexpected surfaceView type: ${surfaceView?.javaClass?.name}"
+                    )
+                }
             }
+        } catch (e: Exception) {
+            Log.e("ExoPlayerView", "Error setting video view", e)
         }
     }
 
@@ -192,7 +228,7 @@ class ExoPlayerView(private val context: Context) :
         }
     }
 
-    var adsShown = false
+    private var adsShown = false
     fun showAds() {
         if (!adsShown) {
             adOverlayFrameLayout = FrameLayout(context)
@@ -234,23 +270,36 @@ class ExoPlayerView(private val context: Context) :
      * player will be called and previous
      * assignments are overridden.
      *
-     * @param player The {@link ExoPlayer} to use.
+     * @param newPlayer The {@link ExoPlayer} to use.
      */
-    fun setPlayer(player: ExoPlayer?) {
-        if (this.player == player) {
+    fun setPlayer(newPlayer: ExoPlayer?) {
+        Log.d("ExoPlayerView", "Setting player: $newPlayer, current player: $player")
+
+        // If player is already set to the same player, do nothing
+        if (this.player == newPlayer) {
+            Log.d("ExoPlayerView", "Player is already set to this view")
             return
         }
+
+        // If there's an existing player, remove its listener and clear video view
         if (this.player != null) {
             this.player!!.removeListener(componentListener)
             clearVideoView()
         }
-        this.player = player
 
+        // Set the new player
+        this.player = newPlayer
+
+        // Update shutter view visibility
         updateShutterViewVisibility()
-        if (player != null) {
+
+        // If the new player is not null, attach it and add listener
+        if (newPlayer != null) {
             setVideoView()
-            player.addListener(componentListener)
+            newPlayer.addListener(componentListener)
         }
+
+        Log.d("ExoPlayerView", "Player set: ${this.player}")
     }
 
     /**

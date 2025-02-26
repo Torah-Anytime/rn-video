@@ -17,6 +17,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.res.Configuration;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
@@ -32,8 +33,6 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
-import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
@@ -128,7 +127,6 @@ import com.brentvatne.receiver.BecomingNoisyListener;
 import com.brentvatne.receiver.PictureInPictureReceiver;
 import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.bridge.Promise;
-import com.facebook.react.bridge.UiThreadUtil;
 import com.facebook.react.uimanager.ThemedReactContext;
 import com.google.ads.interactivemedia.v3.api.AdError;
 import com.google.ads.interactivemedia.v3.api.AdErrorEvent;
@@ -147,6 +145,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -183,7 +182,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private Player.Listener eventListener;
 
     private ExoPlayerView exoPlayerView;
-    private FullScreenPlayerView fullScreenPlayerView;
+    private ExoPlayerFullscreenVideoActivity fullScreenPlayerView;
     private ImaAdsLoader adsLoader;
 
     private DataSource.Factory mediaDataSourceFactory;
@@ -221,7 +220,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private Runnable pipListenerUnsubscribe;
     private boolean useCache = false;
     private ControlsConfig controlsConfig = new ControlsConfig();
-    private ArrayList<Integer> rootViewChildrenOriginalVisibility = new ArrayList<Integer>();
+    private ArrayList<Integer> rootViewChildrenOriginalVisibility = new ArrayList<>();
 
     /*
     * When user is seeking first called is on onPositionDiscontinuity -> DISCONTINUITY_REASON_SEEK
@@ -318,8 +317,13 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     public ReactExoplayerView(ThemedReactContext context, ReactExoplayerConfig config) {
+        this(context, config, null);
+    }
+
+    public ReactExoplayerView(ThemedReactContext context, ReactExoplayerConfig config, ExoPlayerFullscreenVideoActivity fullScreenPlayerView) {
         super(context);
         this.themedReactContext = context;
+        this.fullScreenPlayerView = fullScreenPlayerView;
         this.eventEmitter = new VideoEventEmitter();
         this.config = config;
         this.bandwidthMeter = config.getBandwidthMeter();
@@ -337,7 +341,6 @@ public class ReactExoplayerView extends FrameLayout implements
         audioFocusChangeListener = new OnAudioFocusChangedListener(this, themedReactContext);
         pictureInPictureReceiver = new PictureInPictureReceiver(this, themedReactContext);
     }
-
     private boolean isPlayingAd() {
         return player != null && player.isPlayingAd();
     }
@@ -363,6 +366,7 @@ public class ReactExoplayerView extends FrameLayout implements
     @Override
     protected void onDetachedFromWindow() {
         cleanupPlaybackService();
+        viewInstances.remove(getId());
         super.onDetachedFromWindow();
     }
 
@@ -437,12 +441,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private void initializePlayerControl() {
         if (playerControlView == null) {
             playerControlView = new LegacyPlayerControlView(getContext());
-            playerControlView.addVisibilityListener(new LegacyPlayerControlView.VisibilityListener() {
-                @Override
-                public void onVisibilityChange(int visibility) {
-                    eventEmitter.onControlsVisibilityChange.invoke(visibility == View.VISIBLE);
-                }
-            });
+            playerControlView.addVisibilityListener(visibility -> eventEmitter.onControlsVisibilityChange.invoke(visibility == View.VISIBLE));
         }
 
         // Setting the player for the playerControlView
@@ -469,13 +468,9 @@ public class ReactExoplayerView extends FrameLayout implements
         //Handling the rewind and forward button click events
         ImageButton exoRewind = playerControlView.findViewById(R.id.exo_rew);
         ImageButton exoForward = playerControlView.findViewById(R.id.exo_ffwd);
-        exoRewind.setOnClickListener((View v) -> {
-            seekTo(player.getCurrentPosition() - controlsConfig.getSeekIncrementMS());
-        });
+        exoRewind.setOnClickListener((View v) -> seekTo(player.getCurrentPosition() - controlsConfig.getSeekIncrementMS()));
 
-        exoForward.setOnClickListener((View v) -> {
-            seekTo(player.getCurrentPosition() + controlsConfig.getSeekIncrementMS());
-        });
+        exoForward.setOnClickListener((View v) -> seekTo(player.getCurrentPosition() + controlsConfig.getSeekIncrementMS()));
 
         //Handling the pauseButton click event
         ImageButton pauseButton = playerControlView.findViewById(R.id.exo_pause);
@@ -1172,7 +1167,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
                 mediaSourceFactory = new SsMediaSource.Factory(
                         new DefaultSsChunkSource.Factory(mediaDataSourceFactory),
-                        buildDataSourceFactory(false)
+                        buildDataSourceFactory()
                 );
                 break;
             case CONTENT_TYPE_DASH:
@@ -1183,7 +1178,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
                 mediaSourceFactory = new DashMediaSource.Factory(
                         new DefaultDashChunkSource.Factory(mediaDataSourceFactory),
-                        buildDataSourceFactory(false)
+                        buildDataSourceFactory()
                 );
                 break;
             case CONTENT_TYPE_HLS:
@@ -1321,59 +1316,53 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    private static class OnAudioFocusChangedListener implements AudioManager.OnAudioFocusChangeListener {
-        private final ReactExoplayerView view;
-        private final ThemedReactContext themedReactContext;
-
-        private OnAudioFocusChangedListener(ReactExoplayerView view, ThemedReactContext themedReactContext) {
-            this.view = view;
-            this.themedReactContext = themedReactContext;
-        }
+    private record OnAudioFocusChangedListener(ReactExoplayerView view,
+                                               ThemedReactContext themedReactContext) implements AudioManager.OnAudioFocusChangeListener {
 
         @Override
-        public void onAudioFocusChange(int focusChange) {
-            Activity activity = themedReactContext.getCurrentActivity();
-
-            switch (focusChange) {
-                case AudioManager.AUDIOFOCUS_LOSS:
-                    view.hasAudioFocus = false;
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
-                    if (activity != null) {
-                        activity.runOnUiThread(view::pausePlayback);
-                    }
-                    view.audioManager.abandonAudioFocus(this);
-                    break;
-                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    break;
-                case AudioManager.AUDIOFOCUS_GAIN:
-                    view.hasAudioFocus = true;
-                    view.eventEmitter.onAudioFocusChanged.invoke(true);
-                    break;
-                default:
-                    break;
-            }
-
-            if (view.player != null && activity != null) {
-                if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                    // Lower the volume
-                    if (!view.muted) {
-                        activity.runOnUiThread(() ->
-                                view.player.setVolume(view.audioVolume * 0.8f)
-                        );
-                    }
-                } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
-                    // Raise it back to normal
-                    if (!view.muted) {
-                        activity.runOnUiThread(() ->
-                                view.player.setVolume(view.audioVolume * 1)
-                        );
+            public void onAudioFocusChange(int focusChange) {
+                Activity activity = themedReactContext.getCurrentActivity();
+    
+                switch (focusChange) {
+                    case AudioManager.AUDIOFOCUS_LOSS:
+                        view.hasAudioFocus = false;
+                        view.eventEmitter.onAudioFocusChanged.invoke(false);
+                        // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
+                        if (activity != null) {
+                            activity.runOnUiThread(view::pausePlayback);
+                        }
+                        view.audioManager.abandonAudioFocus(this);
+                        break;
+                    case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                        view.eventEmitter.onAudioFocusChanged.invoke(false);
+                        break;
+                    case AudioManager.AUDIOFOCUS_GAIN:
+                        view.hasAudioFocus = true;
+                        view.eventEmitter.onAudioFocusChanged.invoke(true);
+                        break;
+                    default:
+                        break;
+                }
+    
+                if (view.player != null && activity != null) {
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                        // Lower the volume
+                        if (!view.muted) {
+                            activity.runOnUiThread(() ->
+                                    view.player.setVolume(view.audioVolume * 0.8f)
+                            );
+                        }
+                    } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
+                        // Raise it back to normal
+                        if (!view.muted) {
+                            activity.runOnUiThread(() ->
+                                    view.player.setVolume(view.audioVolume * 1)
+                            );
+                        }
                     }
                 }
             }
         }
-    }
 
     private boolean requestAudioFocus() {
         if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
@@ -1441,13 +1430,11 @@ public class ReactExoplayerView extends FrameLayout implements
     /**
      * Returns a new DataSource factory.
      *
-     * @param useBandwidthMeter Whether to set {@link #bandwidthMeter} as a listener to the new
-     *                          DataSource factory.
      * @return A new DataSource factory.
      */
-    private DataSource.Factory buildDataSourceFactory(boolean useBandwidthMeter) {
+    private DataSource.Factory buildDataSourceFactory() {
         return DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext,
-                useBandwidthMeter ? bandwidthMeter : null, source.getHeaders());
+                null, source.getHeaders());
     }
 
     /**
@@ -1668,7 +1655,7 @@ public class ReactExoplayerView extends FrameLayout implements
         ExecutorService es = Executors.newSingleThreadExecutor();
         final DataSource dataSource = this.mediaDataSourceFactory.createDataSource();
         final Uri sourceUri = source.getUri();
-        final long startTime = source.getContentStartTime() * 1000 - 100; // s -> ms with 100ms offset
+        final long startTime = source.getContentStartTime() * 1000L - 100; // s -> ms with 100ms offset
 
         Future<ArrayList<VideoTrack>> result = es.submit(new Callable() {
             final DataSource ds = dataSource;
@@ -1902,14 +1889,12 @@ public class ReactExoplayerView extends FrameLayout implements
 
                 String value = "";
 
-                if (frame instanceof TextInformationFrame) {
-                    TextInformationFrame txxxFrame = (TextInformationFrame) frame;
+                if (frame instanceof TextInformationFrame txxxFrame) {
                     value = txxxFrame.value;
                 }
                 TimedMetadata timedMetadata = new TimedMetadata(frame.id, value);
                 metadataArray.add(timedMetadata);
-            } else if (entry instanceof EventMessage) {
-                EventMessage eventMessage = (EventMessage) entry;
+            } else if (entry instanceof EventMessage eventMessage) {
                 TimedMetadata timedMetadata = new TimedMetadata(eventMessage.schemeIdUri, eventMessage.value);
                 metadataArray.add(timedMetadata);
             } else {
@@ -2251,8 +2236,11 @@ public class ReactExoplayerView extends FrameLayout implements
     protected void setIsInPictureInPicture(boolean isInPictureInPicture) {
         eventEmitter.onPictureInPictureStatusChanged.invoke(isInPictureInPicture);
 
+        // Check if fullscreen is active
         if (fullScreenPlayerView != null && fullScreenPlayerView.isShowing()) {
-            if (isInPictureInPicture) fullScreenPlayerView.hideWithoutPlayer();
+            if (isInPictureInPicture) {
+                fullScreenPlayerView.hideWithoutPlayer();
+            }
             return;
         }
 
@@ -2288,6 +2276,7 @@ public class ReactExoplayerView extends FrameLayout implements
             }
         }
     }
+
 
     public void enterPictureInPictureMode() {
         PictureInPictureParams _pipParams = null;
@@ -2412,19 +2401,21 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    public void setBufferingStrategy(BufferingStrategy.BufferingStrategyEnum _bufferingStrategy) {
-        bufferingStrategy = _bufferingStrategy;
+    public void onConfigurationChanged(Configuration newConfig) {
+        // Update player layout
+        reLayoutControls();
     }
 
-    public boolean getPreventsDisplaySleepDuringVideoPlayback() {
-        return preventsDisplaySleepDuringVideoPlayback;
+    public void setBufferingStrategy(BufferingStrategy.BufferingStrategyEnum _bufferingStrategy) {
+        bufferingStrategy = _bufferingStrategy;
     }
 
     private void updateFullScreenButtonVisibility() {
         if (playerControlView != null) {
             final ImageButton fullScreenButton = playerControlView.findViewById(R.id.exo_fullscreen);
-            //Handling the fullScreenButton click event
-            if (isFullscreen && fullScreenPlayerView != null && !fullScreenPlayerView.isShowing()) {
+            // Only hide the fullscreen button in the main view when fullscreen mode is active
+            // The fullscreen activity has its own button with different behavior
+            if (isFullscreen && fullScreenPlayerView != null && indexOfChild(playerControlView) != -1) {
                 fullScreenButton.setVisibility(GONE);
             } else {
                 fullScreenButton.setVisibility(VISIBLE);
@@ -2435,6 +2426,7 @@ public class ReactExoplayerView extends FrameLayout implements
     public void setDisableDisconnectError(boolean disableDisconnectError) {
         this.disableDisconnectError = disableDisconnectError;
     }
+
 
     public void setFullscreen(boolean fullscreen) {
         if (fullscreen == isFullscreen) {
@@ -2448,32 +2440,81 @@ public class ReactExoplayerView extends FrameLayout implements
         }
 
         if (isFullscreen) {
-            fullScreenPlayerView = new FullScreenPlayerView(getContext(), exoPlayerView, this, playerControlView, new OnBackPressedCallback(true) {
-                @Override
-                public void handleOnBackPressed() {
-                    setFullscreen(false);
-                }
-            }, controlsConfig);
             eventEmitter.onVideoFullscreenPlayerWillPresent.invoke();
-            if (fullScreenPlayerView != null) {
-                fullScreenPlayerView.show();
+
+            // Note: We're NOT pausing the player here anymore!
+            // Just store the current state to maintain consistency
+
+            // Launch the fullscreen activity
+            Intent intent = new Intent(themedReactContext, ExoPlayerFullscreenVideoActivity.class);
+            intent.putExtra(ExoPlayerFullscreenVideoActivity.EXTRA_REACT_EXOPLAYER_VIEW_ID, getId());
+
+            // Determine orientation
+            String orientation = "landscape"; // Default to landscape for fullscreen
+            if (controlsConfig.getPreferredOrientation() != null) {
+                orientation = controlsConfig.getPreferredOrientation();
             }
-            UiThreadUtil.runOnUiThread(() -> {
+            intent.putExtra(ExoPlayerFullscreenVideoActivity.EXTRA_ORIENTATION, orientation);
+
+            // Pass the controls configuration
+            intent.putExtra(ExoPlayerFullscreenVideoActivity.EXTRA_CONTROLS_CONFIG, controlsConfig);
+
+            activity.startActivity(intent);
+
+            // We'll get the fullScreenPlayerView reference after the activity starts
+            new Handler().postDelayed(() -> {
+                Activity currentActivity = themedReactContext.getCurrentActivity();
+                if (currentActivity instanceof ExoPlayerFullscreenVideoActivity) {
+                    fullScreenPlayerView = (ExoPlayerFullscreenVideoActivity) currentActivity;
+                }
                 eventEmitter.onVideoFullscreenPlayerDidPresent.invoke();
-            });
+            }, 300);
         } else {
             eventEmitter.onVideoFullscreenPlayerWillDismiss.invoke();
-            if (fullScreenPlayerView != null) {
-                fullScreenPlayerView.dismiss();
-                reLayoutControls();
-                setControls(controls);
+
+            // Close the fullscreen activity if it's open
+            Activity currentActivity = themedReactContext.getCurrentActivity();
+            if (currentActivity instanceof ExoPlayerFullscreenVideoActivity) {
+                currentActivity.finish();
             }
-            UiThreadUtil.runOnUiThread(() -> {
-                eventEmitter.onVideoFullscreenPlayerDidDismiss.invoke();
-            });
+
+            // Set the reference to null
+            fullScreenPlayerView = null;
+
+            // Reapply controls and layout
+            reLayoutControls();
+            setControls(controls);
+
+            // Post event after a delay to ensure the activity has closed
+            new Handler().postDelayed(() -> eventEmitter.onVideoFullscreenPlayerDidDismiss.invoke(), 300);
         }
-        // need to be done at the end to avoid hiding fullscreen control button when fullScreenPlayerView is shown
+
+        // Update fullscreen button visibility
         updateFullScreenButtonVisibility();
+        if (playerControlView != null) {
+            final ImageButton fullScreenButton = playerControlView.findViewById(R.id.exo_fullscreen);
+            if (fullScreenButton != null) {
+                fullScreenButton.setOnClickListener(v -> setFullscreen(!isFullscreen));
+            }
+        }
+    }
+
+    // Add this static method to ReactExoplayerView to allow the fullscreen activity to get the view instance
+    private static final ConcurrentHashMap<Integer, ReactExoplayerView> viewInstances = new ConcurrentHashMap<>();
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        viewInstances.put(getId(), this);
+    }
+
+    public static ReactExoplayerView getViewInstance(int id) {
+        return viewInstances.get(id);
+    }
+
+    // Add accessor methods needed by the fullscreen activity
+    public Player getPlayer() {
+        return player;
     }
 
     public void setHideShutterView(boolean hideShutterView) {
