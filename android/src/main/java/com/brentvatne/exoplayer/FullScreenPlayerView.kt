@@ -1,238 +1,374 @@
 package com.brentvatne.exoplayer
-
-import android.annotation.SuppressLint
-import android.app.Dialog
-import android.content.Context
+import android.app.Activity
+import android.content.pm.ActivityInfo
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.view.KeyEvent
 import android.view.View
-import android.view.ViewGroup
-import android.view.Window
 import android.view.WindowManager
-import android.widget.FrameLayout
 import android.widget.ImageButton
-import android.widget.LinearLayout
-import androidx.activity.OnBackPressedCallback
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.LegacyPlayerControlView
 import com.brentvatne.common.api.ControlsConfig
-import com.brentvatne.common.toolbox.DebugLog
-import java.lang.ref.WeakReference
+import com.brentvatne.common.api.ResizeMode
+import com.brentvatne.common.api.ViewType
+import com.brentvatne.react.R
 
-@SuppressLint("PrivateResource")
-class FullScreenPlayerView(
-    context: Context,
-    private val exoPlayerView: ExoPlayerView,
-    private val reactExoplayerView: ReactExoplayerView,
-    private val playerControlView: LegacyPlayerControlView?,
-    private val onBackPressedCallback: OnBackPressedCallback,
-    private val controlsConfig: ControlsConfig
-) : Dialog(context, android.R.style.Theme_Black_NoTitleBar) {
+@UnstableApi
+class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
 
-    private var parent: ViewGroup? = null
-    private val containerView = FrameLayout(context)
-    private val mKeepScreenOnHandler = Handler(Looper.getMainLooper())
-    private val mKeepScreenOnUpdater = KeepScreenOnUpdater(this)
+    private var reactExoplayerView: ReactExoplayerView? = null
+    private var playerView: ExoPlayerView? = null
+    private var playerControlView: LegacyPlayerControlView? = null
+    private var controlsConfig: ControlsConfig? = null
+    private var isShowing = true
+    private var player: ExoPlayer? = null
+    private var originalPlayerWasPlaying = false
+    private var syncingState = false
+    private var audioMuted = true // Always start with audio muted on the fullscreen player
 
-    // As this view is fullscreen we need to save initial state and restore it afterward
-    // Following variables save UI state when open the view
-    // restoreUIState, will reapply these values
-    private var initialSystemBarsBehavior: Int? = null
-    private var initialNavigationBarIsVisible: Boolean? = null
-    private var initialNotificationBarIsVisible: Boolean? = null
-
-    private class KeepScreenOnUpdater(fullScreenPlayerView: FullScreenPlayerView) : Runnable {
-        private val mFullscreenPlayer = WeakReference(fullScreenPlayerView)
-
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val stateCheckHandler = Handler(Looper.getMainLooper())
+    private val stateCheckRunnable = object : Runnable {
         override fun run() {
-            try {
-                val fullscreenVideoPlayer = mFullscreenPlayer.get()
-                if (fullscreenVideoPlayer != null) {
-                    val window = fullscreenVideoPlayer.window
-                    if (window != null) {
-                        val isPlaying = fullscreenVideoPlayer.exoPlayerView.isPlaying
-                        if (isPlaying) {
-                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        } else {
-                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        }
+            syncPlaybackState()
+            stateCheckHandler.postDelayed(this, 500) // Check every 500ms
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Retrieve and validate the ReactExoplayerView ID
+        val reactExoplayerViewId = intent.getIntExtra(EXTRA_REACT_EXOPLAYER_VIEW_ID, -1)
+        reactExoplayerView = ReactExoplayerView.getViewInstance(reactExoplayerViewId)
+
+        if (reactExoplayerView == null) {
+            Log.e(TAG, "No ReactExoplayerView found for ID: $reactExoplayerViewId")
+            finishWithError()
+            return
+        }
+
+        // IMPORTANT: Pause the original player to prevent audio duplication
+        val wasPlaying = reactExoplayerView?.player?.isPlaying ?: false
+        originalPlayerWasPlaying = wasPlaying
+        reactExoplayerView?.player?.playWhenReady = false // Pause original player
+
+        // Keep the screen on during playback
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        // Set screen orientation based on intent extra
+        val orientation = intent.getStringExtra(EXTRA_ORIENTATION)
+        requestedOrientation = getScreenOrientation(orientation)
+
+        // Retrieve and handle controls configuration
+        controlsConfig = intent.getParcelableExtra(EXTRA_CONTROLS_CONFIG) ?: ControlsConfig()
+
+        setContentView(R.layout.exo_player_fullscreen_video)
+
+        // Initialize player view
+        playerView = findViewById(R.id.player_view)
+
+        // Create a new player for fullscreen
+        createNewPlayer()
+
+        // Setup player controls and listeners
+        setupPlayerControls()
+
+        // Apply control configurations
+        applyControlsConfig()
+
+        // Hide system UI for immersive mode
+        hideSystemUI()
+
+        // Start periodic state checks to keep players in sync
+        stateCheckHandler.post(stateCheckRunnable)
+    }
+
+    private fun getScreenOrientation(orientation: String?): Int {
+        return when (orientation) {
+            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            "sensor" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            else -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        }
+    }
+
+    private fun createNewPlayer() {
+        try {
+            val originalPlayer = reactExoplayerView?.player as? ExoPlayer ?: return
+
+            // Get initial playback state
+            val wasPlaying = originalPlayer.isPlaying
+            originalPlayerWasPlaying = wasPlaying
+
+            // Create a new player that matches the original
+            val renderersFactory = DefaultRenderersFactory(this)
+                .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                .setEnableDecoderFallback(true)
+
+            player = ExoPlayer.Builder(this, renderersFactory)
+                .build()
+
+            // Get the original media item
+            val mediaItem = originalPlayer.currentMediaItem ?: return
+
+            // Set the player to the view
+            playerView?.setPlayer(player)
+
+            // Set up the media item
+            player?.setMediaItem(mediaItem)
+
+            // Copy playback position
+            player?.seekTo(originalPlayer.currentPosition)
+
+            // Set same playback parameters and rate
+            player?.playbackParameters = originalPlayer.playbackParameters
+
+            // Prepare the player
+            player?.prepare()
+
+            // CRUCIAL: Mute the audio on the fullscreen player to avoid echo
+            player?.volume = 0f
+
+            // Add listener to sync state changes back to main player
+            player?.addListener(object : Player.Listener {
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!syncingState) {
+                        syncingState = true
+                        // When fullscreen player changes play state, update originalPlayer too
+                        reactExoplayerView?.player?.playWhenReady = playWhenReady
+                        syncingState = false
                     }
-                    fullscreenVideoPlayer.mKeepScreenOnHandler.postDelayed(this, UPDATE_KEEP_SCREEN_ON_FLAG_MS)
                 }
-            } catch (ex: Exception) {
-                DebugLog.e("ExoPlayer Exception", "Failed to flag FLAG_KEEP_SCREEN_ON on fullscreen.")
-                DebugLog.e("ExoPlayer Exception", ex.toString())
+
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int
+                ) {
+                    // When fullscreen player seeks, update originalPlayer too
+                    if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                        reactExoplayerView?.player?.seekTo(newPosition.positionMs)
+                    }
+                }
+            })
+
+            // Set playback state to match original after a delay to ensure proper setup
+            mainHandler.postDelayed({
+                player?.playWhenReady = originalPlayerWasPlaying
+            }, 300)
+
+            Log.d(TAG, "New player created and prepared")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating player", e)
+            finishWithError()
+        }
+    }
+
+    private fun syncPlaybackState() {
+        if (syncingState || player == null || reactExoplayerView?.player == null) return
+
+        syncingState = true
+        try {
+            val originalPlayer = reactExoplayerView?.player
+            val fullscreenPlayer = player
+
+            // Check if pause/play state has changed in original player
+            if (originalPlayer?.playWhenReady != fullscreenPlayer?.playWhenReady) {
+                fullscreenPlayer?.playWhenReady = originalPlayer?.playWhenReady ?: false
+            }
+
+            // Check if position has changed significantly in original player
+            val posDifference = Math.abs((originalPlayer?.currentPosition ?: 0) -
+                (fullscreenPlayer?.currentPosition ?: 0))
+            if (posDifference > 2000) { // More than 2 seconds difference
+                fullscreenPlayer?.seekTo(originalPlayer?.currentPosition ?: 0)
+            }
+        } finally {
+            syncingState = false
+        }
+    }
+
+    private fun setupPlayerControls() {
+        playerView?.setOnClickListener { togglePlayerControlVisibility() }
+
+        playerControlView = findViewById(R.id.player_controls)
+        player?.let { playerControlView?.setPlayer(it) }
+
+        setupFullscreenButton()
+        setupPlayPauseButtons()
+    }
+
+    private fun setupFullscreenButton() {
+        val fullscreenIcon = playerControlView?.findViewById<ImageButton>(R.id.exo_fullscreen)
+        fullscreenIcon?.apply {
+            setImageResource(androidx.media3.ui.R.drawable.exo_icon_fullscreen_exit)
+            setBackgroundResource(android.R.color.transparent)
+            visibility = View.VISIBLE
+            setOnClickListener {
+                mainHandler.post {
+                    reactExoplayerView?.setFullscreen(false)
+                    finish()
+                }
             }
         }
-
-        companion object {
-            private const val UPDATE_KEEP_SCREEN_ON_FLAG_MS = 200L
-        }
     }
 
-    init {
-        setContentView(containerView, generateDefaultLayoutParams())
-
-        window?.let {
-            val inset = WindowInsetsControllerCompat(it, it.decorView)
-            initialSystemBarsBehavior = inset.systemBarsBehavior
-            initialNavigationBarIsVisible = ViewCompat.getRootWindowInsets(it.decorView)
-                ?.isVisible(WindowInsetsCompat.Type.navigationBars()) == true
-            initialNotificationBarIsVisible = ViewCompat.getRootWindowInsets(it.decorView)
-                ?.isVisible(WindowInsetsCompat.Type.statusBars()) == true
-        }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        parent = exoPlayerView.parent as ViewGroup?
-        parent?.removeView(exoPlayerView)
-        containerView.addView(exoPlayerView, generateDefaultLayoutParams())
-        playerControlView?.let {
-            updateFullscreenButton(playerControlView, true)
-            parent?.removeView(it)
-            containerView.addView(it, generateDefaultLayoutParams())
-        }
-        updateNavigationBarVisibility()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        mKeepScreenOnHandler.removeCallbacks(mKeepScreenOnUpdater)
-        containerView.removeView(exoPlayerView)
-        parent?.addView(exoPlayerView, generateDefaultLayoutParams())
-        playerControlView?.let {
-            updateFullscreenButton(playerControlView, false)
-            containerView.removeView(it)
-            parent?.addView(it, generateDefaultLayoutParams())
-        }
-        parent?.requestLayout()
-        parent = null
-        onBackPressedCallback.handleOnBackPressed()
-        restoreSystemUI()
-    }
-
-    // restore system UI state
-    private fun restoreSystemUI() {
-        window?.let {
-            updateNavigationBarVisibility(
-                it,
-                initialNavigationBarIsVisible,
-                initialNotificationBarIsVisible,
-                initialSystemBarsBehavior
-            )
-        }
-    }
-
-    fun hideWithoutPlayer() {
-        for (i in 0 until containerView.childCount) {
-            if (containerView.getChildAt(i) !== exoPlayerView) {
-                containerView.getChildAt(i).visibility = View.GONE
+    private fun setupPlayPauseButtons() {
+        playerControlView?.findViewById<View>(R.id.exo_play)?.setOnClickListener {
+            if (player?.playbackState == Player.STATE_ENDED) {
+                player?.seekTo(0)
             }
+            playerControlView?.show()
+            player?.playWhenReady = true
+            // Save state to sync back to original
+            originalPlayerWasPlaying = true
+        }
+
+        playerControlView?.findViewById<View>(R.id.exo_pause)?.setOnClickListener {
+            player?.playWhenReady = false
+            // Save state to sync back to original
+            originalPlayerWasPlaying = false
         }
     }
 
-    private fun getFullscreenIconResource(isFullscreen: Boolean): Int =
-        if (isFullscreen) {
-            androidx.media3.ui.R.drawable.exo_icon_fullscreen_exit
+    private fun applyControlsConfig() {
+        if (controlsConfig == null || playerControlView == null) return
+
+        updateButtonVisibility(R.id.exo_ffwd, controlsConfig!!.hideForward)
+        updateButtonVisibility(R.id.exo_rew, controlsConfig!!.hideRewind)
+        updateButtonVisibility(R.id.exo_next, controlsConfig!!.hideNext)
+        updateButtonVisibility(R.id.exo_prev, controlsConfig!!.hidePrevious)
+
+        updateViewVisibility(R.id.exo_position, controlsConfig!!.hidePosition)
+        updateViewVisibility(R.id.exo_progress, controlsConfig!!.hideSeekBar, View.INVISIBLE)
+        updateViewVisibility(R.id.exo_duration, controlsConfig!!.hideDuration)
+        updateViewVisibility(R.id.exo_settings, controlsConfig!!.hideSettingButton)
+    }
+
+    private fun updateButtonVisibility(buttonId: Int, hide: Boolean) {
+        val button = playerControlView?.findViewById<ImageButton>(buttonId)
+        button?.apply {
+            imageAlpha = if (hide) 0 else 255
+            isClickable = !hide
+        }
+    }
+
+    private fun updateViewVisibility(viewId: Int, hide: Boolean, hiddenVisibility: Int = View.GONE) {
+        val view = playerControlView?.findViewById<View>(viewId)
+        view?.visibility = if (hide) hiddenVisibility else View.VISIBLE
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isShowing = true
+        player?.playWhenReady = originalPlayerWasPlaying
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Store current state before pausing
+        originalPlayerWasPlaying = player?.playWhenReady ?: false
+        player?.playWhenReady = false
+    }
+
+    override fun onDestroy() {
+        stateCheckHandler.removeCallbacks(stateCheckRunnable)
+
+        // Release our fullscreen player
+        player?.release()
+        player = null
+
+        super.onDestroy()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            playerControlView?.postDelayed({ hideSystemUI() }, 200)
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            reactExoplayerView?.setFullscreen(false)
+            finish()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun togglePlayerControlVisibility() {
+        if (playerControlView?.isVisible == true) {
+            playerControlView?.hide()
         } else {
-            androidx.media3.ui.R.drawable.exo_icon_fullscreen_enter
-        }
-
-    private fun updateFullscreenButton(playerControlView: LegacyPlayerControlView, isFullscreen: Boolean) {
-        val imageButton = playerControlView.findViewById<ImageButton?>(com.brentvatne.react.R.id.exo_fullscreen)
-        imageButton?.let {
-            val imgResource = getFullscreenIconResource(isFullscreen)
-            val desc = if (isFullscreen) {
-                context.getString(androidx.media3.ui.R.string.exo_controls_fullscreen_exit_description)
-            } else {
-                context.getString(androidx.media3.ui.R.string.exo_controls_fullscreen_enter_description)
-            }
-            imageButton.setImageResource(imgResource)
-            imageButton.contentDescription = desc
+            playerControlView?.show()
         }
     }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        if (reactExoplayerView.preventsDisplaySleepDuringVideoPlayback) {
-            mKeepScreenOnHandler.post(mKeepScreenOnUpdater)
+    /**
+     * Enables regular immersive mode.
+     */
+    private fun hideSystemUI() {
+        val decorView = window.decorView
+        decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE
+            // Set the content to appear under the system bars so that the
+            // content doesn't resize when the system bars hide and show.
+            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            // Hide the nav bar and status bar
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_FULLSCREEN)
+    }
+
+    private fun finishWithError() {
+        runOnUiThread {
+            setResult(Activity.RESULT_CANCELED)
+            finish()
         }
     }
 
-    private fun generateDefaultLayoutParams(): FrameLayout.LayoutParams {
-        val layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        )
-        layoutParams.setMargins(0, 0, 0, 0)
-        return layoutParams
+    override fun finish() {
+        // Save current playback state before finishing
+        player?.let { fullscreenPlayer ->
+            originalPlayerWasPlaying = fullscreenPlayer.playWhenReady
+        }
+
+        // Stop checking state
+        stateCheckHandler.removeCallbacks(stateCheckRunnable)
+
+        // Restore the original player's state (delayed to ensure activity transition completes)
+        mainHandler.postDelayed({
+            reactExoplayerView?.player?.playWhenReady = originalPlayerWasPlaying
+        }, 100)
+
+        super.finish()
     }
 
-    private fun updateBarVisibility(
-        inset: WindowInsetsControllerCompat,
-        type: Int,
-        shouldHide: Boolean?,
-        initialVisibility: Boolean?,
-        systemBarsBehavior: Int? = null
-    ) {
-        shouldHide?.takeIf { it != initialVisibility }?.let {
-            if (it) {
-                inset.hide(type)
-                systemBarsBehavior?.let { behavior -> inset.systemBarsBehavior = behavior }
-            } else {
-                inset.show(type)
-            }
-        }
+    // Added method to fix reference error
+    fun hideWithoutPlayer() {
+        isShowing = false
+        // Hide UI elements but keep the player
+        playerControlView?.visibility = View.GONE
     }
 
-    // Move the UI to fullscreen.
-    // if you change this code, remember to check that the UI is well restored in restoreUIState
-    private fun updateNavigationBarVisibility(
-        window: Window,
-        hideNavigationBarOnFullScreenMode: Boolean?,
-        hideNotificationBarOnFullScreenMode: Boolean?,
-        systemBarsBehavior: Int?
-    ) {
-        // Configure the behavior of the hidden system bars.
-        val inset = WindowInsetsControllerCompat(window, window.decorView)
-
-        // Update navigation bar visibility and apply systemBarsBehavior if hiding
-        updateBarVisibility(
-            inset,
-            WindowInsetsCompat.Type.navigationBars(),
-            hideNavigationBarOnFullScreenMode,
-            initialNavigationBarIsVisible,
-            systemBarsBehavior
-        )
-
-        // Update notification bar visibility (no need for systemBarsBehavior here)
-        updateBarVisibility(
-            inset,
-            WindowInsetsCompat.Type.statusBars(),
-            hideNotificationBarOnFullScreenMode,
-            initialNotificationBarIsVisible
-        )
+    // Added method to check if activity is showing
+    fun isShowing(): Boolean {
+        return isShowing && !isFinishing
     }
 
-    private fun updateNavigationBarVisibility() {
-        window?.let {
-            updateNavigationBarVisibility(
-                it,
-                controlsConfig.hideNavigationBarOnFullScreenMode,
-                controlsConfig.hideNotificationBarOnFullScreenMode,
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            )
-        }
-        if (controlsConfig.hideNotificationBarOnFullScreenMode) {
-            val liveContainer = playerControlView?.findViewById<LinearLayout?>(com.brentvatne.react.R.id.exo_live_container)
-            liveContainer?.let {
-                val layoutParams = it.layoutParams as LinearLayout.LayoutParams
-                layoutParams.topMargin = 40
-                it.layoutParams = layoutParams
-            }
-        }
+    companion object {
+        const val EXTRA_REACT_EXOPLAYER_VIEW_ID = "extra_id"
+        const val EXTRA_ORIENTATION = "extra_orientation"
+        const val EXTRA_CONTROLS_CONFIG = "extra_controls_config"
+        private const val TAG = "ExoPlayerFullscreen"
     }
 }
