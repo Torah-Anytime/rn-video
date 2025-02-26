@@ -242,7 +242,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private boolean focusable = true;
     private BufferingStrategy.BufferingStrategyEnum bufferingStrategy;
     private boolean disableDisconnectError;
-    private boolean preventsDisplaySleepDuringVideoPlayback = true;
+    boolean preventsDisplaySleepDuringVideoPlayback = true;
     private float mProgressUpdateInterval = 250.0f;
     protected boolean playInBackground = false;
     private boolean mReportBandwidth = false;
