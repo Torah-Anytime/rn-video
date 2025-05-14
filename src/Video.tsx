@@ -93,6 +93,8 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
       onReadyForDisplay,
       onPlaybackRateChange,
       onVolumeChange,
+      onNextTrack,
+      onPreviousTrack,
       onAudioBecomingNoisy,
       onPictureInPictureStatusChanged,
       onRestoreUserInterfaceForPictureInPictureStop,
@@ -630,6 +632,20 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
       [onControlsVisibilityChange],
     );
 
+    const _onNextTrack = useCallback(
+      () => {
+        onNextTrack?.();
+      },
+      [onNextTrack],
+    );
+
+    const _onPreviousTrack = useCallback(
+      () => {
+        onPreviousTrack?.();
+      },
+      [onNextTrack],
+    );
+
     const selectedDrm = source?.drm || drm;
     const usingExternalGetLicense = selectedDrm?.getLicense instanceof Function;
 
@@ -881,6 +897,8 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
             onPlaybackRateChange ? _onPlaybackRateChange : undefined
           }
           onVolumeChange={onVolumeChange ? _onVolumeChange : undefined}
+          onNextTrack={onNextTrack ? _onNextTrack : undefined}
+          onPreviousTrack={onPreviousTrack ? _onPreviousTrack : undefined}
           onVideoAudioBecomingNoisy={onAudioBecomingNoisy}
           onPictureInPictureStatusChanged={
             onPictureInPictureStatusChanged

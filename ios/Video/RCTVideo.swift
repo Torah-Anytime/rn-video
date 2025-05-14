@@ -133,6 +133,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc var onTextTracks: RCTDirectEventBlock?
     @objc var onAudioTracks: RCTDirectEventBlock?
     @objc var onTextTrackDataChanged: RCTDirectEventBlock?
+    @objc var onNextTrack: RCTDirectEventBlock?
+    @objc var onPreviousTrack: RCTDirectEventBlock?
 
     @objc
     func _onPictureInPictureEnter() {
@@ -265,6 +267,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 object: nil
             )
         #endif
+        
+        // Add notification observers for track changes
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleNextTrack),
+            name: NSNotification.Name("RCTVideo.nextTrack"),
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handlePreviousTrack),
+            name: NSNotification.Name("RCTVideo.previousTrack"),
+            object: nil
+        )
 
         _playerObserver._handlers = self
         #if USE_VIDEO_CACHING
@@ -297,6 +314,18 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
             _pip = nil
         #endif
         ReactNativeVideoManager.shared.unregisterView(newInstance: self)
+    }
+    
+    // MARK: - Track Change Handlers
+    
+    @objc
+    func handleNextTrack() {
+        onNextTrack?(["target": reactTag as Any])
+    }
+    
+    @objc
+    func handlePreviousTrack() {
+        onPreviousTrack?(["target": reactTag as Any])
     }
 
     // MARK: - App lifecycle handlers
