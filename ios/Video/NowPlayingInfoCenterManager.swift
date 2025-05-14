@@ -14,8 +14,8 @@ class NowPlayingInfoCenterManager {
 
     private var playTarget: Any?
     private var pauseTarget: Any?
-    private var skipForwardTarget: Any?
-    private var skipBackwardTarget: Any?
+    private var previousTrackTarget: Any?
+    private var nextTrackTarget: Any?
     private var playbackPositionTarget: Any?
     private var seekTarget: Any?
     private var togglePlayPauseTarget: Any?
@@ -144,22 +144,21 @@ class NowPlayingInfoCenterManager {
             return .success
         }
 
-        skipBackwardTarget = remoteCommandCenter.skipBackwardCommand.addTarget { [weak self] _ in
-            guard let self, let player = self.currentPlayer else {
+        previousTrackTarget = remoteCommandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self else {
                 return .commandFailed
             }
-            let newTime = player.currentTime() - CMTime(seconds: self.SEEK_INTERVAL_SECONDS, preferredTimescale: .max)
-            player.seek(to: newTime)
+            // Send notification to React Native
+            NotificationCenter.default.post(name: NSNotification.Name("RCTVideo.previousTrack"), object: nil)
             return .success
         }
 
-        skipForwardTarget = remoteCommandCenter.skipForwardCommand.addTarget { [weak self] _ in
-            guard let self, let player = self.currentPlayer else {
+        nextTrackTarget = remoteCommandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self else {
                 return .commandFailed
             }
-
-            let newTime = player.currentTime() + CMTime(seconds: self.SEEK_INTERVAL_SECONDS, preferredTimescale: .max)
-            player.seek(to: newTime)
+            // Send notification to React Native
+            NotificationCenter.default.post(name: NSNotification.Name("RCTVideo.nextTrack"), object: nil)
             return .success
         }
 
@@ -193,8 +192,8 @@ class NowPlayingInfoCenterManager {
     private func invalidateCommandTargets() {
         remoteCommandCenter.playCommand.removeTarget(playTarget)
         remoteCommandCenter.pauseCommand.removeTarget(pauseTarget)
-        remoteCommandCenter.skipForwardCommand.removeTarget(skipForwardTarget)
-        remoteCommandCenter.skipBackwardCommand.removeTarget(skipBackwardTarget)
+        remoteCommandCenter.nextTrackCommand.removeTarget(nextTrackTarget)
+        remoteCommandCenter.previousTrackCommand.removeTarget(previousTrackTarget)
         remoteCommandCenter.changePlaybackPositionCommand.removeTarget(playbackPositionTarget)
         remoteCommandCenter.togglePlayPauseCommand.removeTarget(togglePlayPauseTarget)
     }
