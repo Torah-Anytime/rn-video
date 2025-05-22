@@ -61,6 +61,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     private var _presentingViewController: UIViewController?
     private var _startPosition: Float64 = -1
     private var _showNotificationControls = false
+    private var _audioSessionInterrupted = false
+    private var _wasPlayingBeforeInterruption = false
     // Buffer last bitrate value received. Initialized to -2 to ensure -1 (sometimes reported by AVPlayer) is not missed
     private var _lastBitrate = -2.0
     private var _enterPictureInPictureOnLeave = false {
@@ -258,6 +260,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
             name: AVAudioSession.routeChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(audioSessionInterruption(notification:)),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
 
         #if os(iOS)
             NotificationCenter.default.addObserver(
@@ -373,7 +381,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc
     func applicationDidBecomeActive(notification _: NSNotification!) {
         let isExternalPlaybackActive = getIsExternalPlaybackActive()
-        if _playInBackground || _playWhenInactive || !_isPlaying || isExternalPlaybackActive { return }
+        
+        if _playInBackground || _playWhenInactive || !_isPlaying || isExternalPlaybackActive || _audioSessionInterrupted {
+            return
+        }
 
         // Resume the player or any other tasks that should continue when the app becomes active.
         _player?.play()
@@ -430,7 +441,42 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
             }
         }
     }
-
+    
+    @objc
+    func audioSessionInterruption(notification: NSNotification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        
+        switch type {
+        case .began:
+            _audioSessionInterrupted = true
+            _wasPlayingBeforeInterruption = !_paused
+            // Actually pause the player and update UI state
+            if !_paused {
+                _player?.pause()
+                _player?.rate = 0.0
+                _paused = true
+                // Trigger UI update to show paused state
+                onVideoPlaybackStateChanged?(["isPlaying": false, "isSeeking": false, "target": reactTag as Any])
+            }
+        case .ended:
+            _audioSessionInterrupted = false
+            // Resume if we were playing before interruption
+            if _wasPlayingBeforeInterruption {
+                _paused = false
+                _player?.play()
+                _player?.rate = _rate
+                // Trigger UI update to show playing state
+                onVideoPlaybackStateChanged?(["isPlaying": true, "isSeeking": false, "target": reactTag as Any])
+            }
+            _wasPlayingBeforeInterruption = false
+        @unknown default:
+            break
+        }
+    }
     // MARK: - Progress
 
     func sendProgressUpdate(didEnd: Bool = false) {
@@ -850,6 +896,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 _player?.rate = 0.0
             }
         } else {
+            // Don't resume if audio session is interrupted
+            if _audioSessionInterrupted { return }
+            
             RCTPlayerOperations.configureAudio(ignoreSilentSwitch: _ignoreSilentSwitch, mixWithOthers: _mixWithOthers, audioOutput: _audioOutput)
 
             if _adPlaying {
