@@ -4,10 +4,28 @@ import React, {
   useEffect,
   useImperativeHandle,
   useRef,
-  type RefObject,
   useState,
+  type RefObject,
+  type CSSProperties,
 } from 'react';
-import type {VideoRef, ReactVideoProps, VideoMetadata} from './types';
+import {StyleProp, ViewStyle} from 'react-native';
+import {unstable_createElement} from 'react-native-web';
+import type {ReactVideoProps, VideoMetadata, VideoRef} from './types';
+
+// Define a style prop that is accepted and transformed by React Native Web
+// for the native `video` element.
+interface WebVideoElementProps
+  extends Omit<React.ComponentProps<'video'>, 'style'> {
+  style?: StyleProp<ViewStyle | CSSProperties>;
+}
+
+// Wrap the native `video` element to accept both React Native styles and CSS
+// styles.
+//
+// See <https://necolas.github.io/react-native-web/docs/unstable-apis/#use-with-existing-react-dom-components>
+function WebVideo(props: WebVideoElementProps) {
+  return unstable_createElement('video', props);
+}
 
 // stolen from https://stackoverflow.com/a/77278013/21726244
 const isDeepEqual = <T,>(a: T, b: T): boolean => {
@@ -28,6 +46,7 @@ const isDeepEqual = <T,>(a: T, b: T): boolean => {
 const Video = forwardRef<VideoRef, ReactVideoProps>(
   (
     {
+      style,
       source,
       paused,
       muted,
@@ -54,7 +73,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
     },
     ref,
   ) => {
-    const nativeRef = useRef<HTMLVideoElement>(null);
+    const nativeRef = useRef<HTMLVideoElement | null>(null);
 
     const isSeeking = useRef(false);
     const seek = useCallback(
@@ -306,7 +325,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
     useMediaSession(src?.metadata, nativeRef, showNotificationControls);
 
     return (
-      <video
+      <WebVideo
         ref={nativeRef}
         src={src?.uri as string | undefined}
         muted={muted}
@@ -410,7 +429,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
           onVolumeChange?.({volume: nativeRef.current.volume});
         }}
         onEnded={onEnd}
-        style={videoStyle}
+        style={[videoStyle, style]}
       />
     );
   },
@@ -426,10 +445,10 @@ const videoStyle = {
 
 const useMediaSession = (
   metadata: VideoMetadata | undefined,
-  nativeRef: RefObject<HTMLVideoElement>,
+  nativeRef: RefObject<HTMLVideoElement | null>,
   showNotification: boolean,
 ) => {
-  const isPlaying = !nativeRef.current?.paused ?? false;
+  const isPlaying = nativeRef.current ? nativeRef.current.paused : false;
   const progress = nativeRef.current?.currentTime ?? 0;
   const duration = Number.isFinite(nativeRef.current?.duration)
     ? nativeRef.current?.duration
