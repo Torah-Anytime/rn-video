@@ -927,7 +927,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                     _player?.play()
                     _player?.rate = _rate
                 }
-                _player?.rate = _rate
             }
         }
 
@@ -1045,12 +1044,71 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
             item.forwardPlaybackEndTime = CMTimeMake(value: cropEnd, timescale: 1000)
         }
     }
+    
+    private func configureAudioSession() {
+        // Skip configuration if audio session management is disabled
+        guard !_disableAudioSessionManagement else { return }
+        
+        let audioSession: AVAudioSession! = AVAudioSession.sharedInstance()
+        var category: AVAudioSession.Category?
+        var options: AVAudioSession.CategoryOptions?
+
+        if _ignoreSilentSwitch == "ignore" {
+            category = _audioOutput == "earpiece" ? AVAudioSession.Category.playAndRecord : AVAudioSession.Category.playback
+        } else if _ignoreSilentSwitch == "obey" {
+            category = AVAudioSession.Category.ambient
+        }
+
+        if _mixWithOthers == "mix" {
+            options = .mixWithOthers
+        } else if _mixWithOthers == "duck" {
+            options = .duckOthers
+        }
+
+        if let category, let options {
+            do {
+                try audioSession.setCategory(category, options: options)
+            } catch {
+                debugPrint("[RCTPlayerOperations] Problem setting up AVAudioSession category and options. Error: \(error).")
+                #if !os(tvOS)
+                    // Handle specific set category and option combination error
+                    // setCategory:AVAudioSessionCategoryPlayback withOptions:mixWithOthers || duckOthers
+                    // Failed to set category, error: 'what' Error Domain=NSOSStatusErrorDomain
+                    // https://developer.apple.com/forums/thread/714598
+                    if #available(iOS 16.0, *) {
+                        do {
+                            debugPrint("[RCTPlayerOperations] Reseting AVAudioSession category to playAndRecord with defaultToSpeaker options.")
+                            try audioSession.setCategory(
+                                _audioOutput == "earpiece" ? AVAudioSession.Category.playAndRecord : AVAudioSession.Category.playback,
+                                options: AVAudioSession.CategoryOptions.defaultToSpeaker
+                            )
+                        } catch {
+                            debugPrint("[RCTPlayerOperations] Reseting AVAudioSession category and options problem. Error: \(error).")
+                        }
+                    }
+                #endif
+            }
+        } else if let category, options == nil {
+            do {
+                try audioSession.setCategory(category)
+            } catch {
+                debugPrint("[RCTPlayerOperations] Problem setting up AVAudioSession category. Error: \(error).")
+            }
+        } else if category == nil, let options {
+            do {
+                try audioSession.setCategory(audioSession.category, options: options)
+            } catch {
+                debugPrint("[RCTPlayerOperations] Problem setting up AVAudioSession options. Error: \(error).")
+            }
+        }
+    }
 
     func applyModifiers() {
         if let video = _player?.currentItem,
            video.status != AVPlayerItem.Status.readyToPlay {
             return
         }
+        
         if _muted {
             if !_controls {
                 _player?.volume = 0
@@ -1080,6 +1138,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
         setControls(_controls)
         setPaused(_paused)
         setAllowsExternalPlayback(_allowsExternalPlayback)
+        
+        // Configure audio session when applying modifiers
+        configureAudioSession()
 
         AudioSessionManager.shared.playerPropertiesChanged(view: self)
     }
