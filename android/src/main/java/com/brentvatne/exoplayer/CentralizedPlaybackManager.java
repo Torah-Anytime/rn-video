@@ -1,398 +1,1074 @@
 package com.brentvatne.exoplayer;
 
 import android.content.Context;
+import android.content.Intent;
+import android.media.AudioDeviceInfo;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.TextureView;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
+import androidx.media3.common.AuxEffectInfo;
+import androidx.media3.common.DeviceInfo;
+import androidx.media3.common.Effect;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.PriorityTaskManager;
+import androidx.media3.common.Timeline;
+import androidx.media3.common.TrackSelectionParameters;
+import androidx.media3.common.Tracks;
+import androidx.media3.common.VideoSize;
+import androidx.media3.common.text.CueGroup;
+import androidx.media3.common.util.Clock;
+import androidx.media3.common.util.Size;
+import androidx.media3.exoplayer.DecoderCounters;
+import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.PlayerMessage;
+import androidx.media3.exoplayer.Renderer;
+import androidx.media3.exoplayer.RenderersFactory;
+import androidx.media3.exoplayer.SeekParameters;
+import androidx.media3.exoplayer.analytics.AnalyticsCollector;
+import androidx.media3.exoplayer.analytics.AnalyticsListener;
+import androidx.media3.exoplayer.image.ImageOutput;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ShuffleOrder;
+import androidx.media3.exoplayer.source.TrackGroupArray;
+import androidx.media3.exoplayer.trackselection.TrackSelectionArray;
+import androidx.media3.exoplayer.trackselection.TrackSelector;
+import androidx.media3.exoplayer.video.VideoFrameMetadataListener;
+import androidx.media3.exoplayer.video.spherical.CameraMotionListener;
+
+import android.app.Service;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Centralized playback manager that provides a single ExoPlayer instance
  * to be shared between React Native Video and any external media services (like Android Auto).
  * This ensures seamless playback experience across different interfaces.
  */
-public class CentralizedPlaybackManager {
+public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private static final String TAG = "CentralizedPlaybackManager";
     private static volatile CentralizedPlaybackManager instance;
 
     private ExoPlayer player;
-    private final Context context;
-    private final Handler mainHandler;
-    private final List<PlaybackStateListener> listeners;
-    private final Object syncLock = new Object();
 
-    // State tracking
-    private boolean isInitialized = false;
-    private boolean isStandaloneMode = false;
-    private boolean isReactNativeActive = false;
-    private String currentSource = null;
-    private long lastSyncTime = 0;
-    private static final long SYNC_THROTTLE_MS = 100; // Prevent rapid sync calls
-
-    // Sync item types enum
-    public enum SyncItem {
-        PAUSED,
-        SEEK,
-        SPEED,
-        MEDIA_ITEM,
-        VOLUME
+    //Initialization
+    private CentralizedPlaybackManager(){
+        this.player = new ExoPlayer.Builder(this.getApplicationContext()).build();
     }
 
-    public interface PlaybackStateListener {
-        void onPlaybackStateChanged(boolean isPlaying, long position, float speed);
-        void onMediaItemChanged(@Nullable MediaItem mediaItem);
-        void onSeekCompleted(long position);
-        void onVolumeChanged(float volume);
-
-        // Add default implementation to avoid breaking existing code
-        default void onModeChanged(boolean isStandalone, boolean isReactNativeActive) {
-            // Default implementation does nothing
-        }
-    }
-
-    private CentralizedPlaybackManager(Context context) {
-        this.context = context.getApplicationContext();
-        this.mainHandler = new Handler(Looper.getMainLooper());
-        this.listeners = new CopyOnWriteArrayList<>();
-        initializePlayer();
-    }
-
-    public static synchronized CentralizedPlaybackManager getInstance(Context context) {
-        if (instance == null) {
-            instance = new CentralizedPlaybackManager(context);
+    public static synchronized CentralizedPlaybackManager getInstance(){
+        if(instance == null){
+            instance = new CentralizedPlaybackManager();
         }
         return instance;
     }
 
-    public static synchronized CentralizedPlaybackManager getInstance() {
-        if (instance == null) {
-            throw new IllegalStateException("CentralizedPlaybackManager not initialized. Call getInstance(Context) first.");
-        }
-        return instance;
+    //===== Overrides =====
+
+    @Nullable
+    @Override
+    public ExoPlaybackException getPlayerError() {
+        return null;
     }
 
-    /**
-     * Initialize in standalone mode (called by Android Auto service)
-     */
-    public synchronized void initializeStandalone() {
-        if (isInitialized) {
-            Log.d(TAG, "Already initialized, switching to standalone mode");
-            isStandaloneMode = true;
-            notifyModeChanged();
-            return;
-        }
+    @Override
+    public void play() {
 
-        Log.d(TAG, "Initializing in standalone mode");
-        isStandaloneMode = true;
-        isReactNativeActive = false;
-        initializePlayer();
     }
 
-    private void initializePlayer() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(this::initializePlayer);
-            return;
-        }
+    @Override
+    public void pause() {
 
-        try {
-            if (player == null) {
-                player = new ExoPlayer.Builder(context).build();
-                player.setAudioAttributes(AudioAttributes.DEFAULT, true);
-
-                // Set up player listener
-                player.addListener(new Player.Listener() {
-                    @Override
-                    public void onIsPlayingChanged(boolean isPlaying) {
-                        notifyPlaybackStateChanged();
-                    }
-
-                    @Override
-                    public void onPositionDiscontinuity(
-                            @NonNull Player.PositionInfo oldPosition,
-                            @NonNull Player.PositionInfo newPosition,
-                            @Player.DiscontinuityReason int reason) {
-                        if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                            notifySeekCompleted(newPosition.positionMs);
-                        }
-                    }
-
-                    @Override
-                    public void onPlaybackParametersChanged(@NonNull PlaybackParameters playbackParameters) {
-                        notifyPlaybackStateChanged();
-                    }
-
-                    @Override
-                    public void onMediaItemTransition(@Nullable MediaItem mediaItem, @Player.MediaItemTransitionReason int reason) {
-                        notifyMediaItemChanged(mediaItem);
-                    }
-
-                    @Override
-                    public void onVolumeChanged(float volume) {
-                        notifyVolumeChanged(volume);
-                    }
-                });
-            }
-
-            isInitialized = true;
-            String mode = isStandaloneMode ? "standalone" : "React Native";
-            Log.d(TAG, "CentralizedPlaybackManager initialized in " + mode + " mode");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize player", e);
-        }
     }
 
-    public ExoPlayer getPlayer() {
-        if (!isInitialized) {
-            // Auto-initialize in standalone mode if accessed by external service
-            if (!isReactNativeActive) {
-                initializeStandalone();
-            }
-        }
-        return player;
+    @Override
+    public void setPlayWhenReady(boolean playWhenReady) {
+
     }
 
-    public boolean isInitialized() {
-        return isInitialized;
+    @Override
+    public boolean getPlayWhenReady() {
+        return false;
     }
 
-    public boolean isReactNativeActive() {
-        return isReactNativeActive;
+    @Override
+    public void setRepeatMode(int repeatMode) {
+
     }
 
-    public void addListener(PlaybackStateListener listener) {
-        listeners.add(listener);
+    @Override
+    public int getRepeatMode() {
+        return 0;
     }
 
-    public void removeListener(PlaybackStateListener listener) {
-        listeners.remove(listener);
+    @Override
+    public void setShuffleModeEnabled(boolean shuffleModeEnabled) {
+
     }
 
-    /**
-     * Set media source - typically called from React Native side
-     */
-    public void setMediaSource(String uri) {
-        if (!isInitialized) {
-            Log.w(TAG, "Player not initialized, cannot set media source");
-            return;
-        }
-
-        mainHandler.post(() -> {
-            try {
-                MediaItem mediaItem = MediaItem.fromUri(uri);
-                player.setMediaItem(mediaItem);
-                player.prepare();
-                currentSource = uri;
-                Log.d(TAG, "Media source set: " + uri);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to set media source", e);
-            }
-        });
+    @Override
+    public boolean getShuffleModeEnabled() {
+        return false;
     }
 
-    /**
-     * Set media items - typically called from external media services
-     */
+    @Override
+    public boolean isLoading() {
+        return false;
+    }
+
+    @Override
+    public void seekToDefaultPosition() {
+
+    }
+
+    @Override
+    public void seekToDefaultPosition(int mediaItemIndex) {
+
+    }
+
+    @Override
+    public void seekTo(long positionMs) {
+
+    }
+
+    @Override
+    public void seekTo(int mediaItemIndex, long positionMs) {
+
+    }
+
+    @Override
+    public long getSeekBackIncrement() {
+        return 0;
+    }
+
+    @Override
+    public void seekBack() {
+
+    }
+
+    @Override
+    public long getSeekForwardIncrement() {
+        return 0;
+    }
+
+    @Override
+    public void seekForward() {
+
+    }
+
+    @Override
+    public boolean hasPrevious() {
+        return false;
+    }
+
+    @Override
+    public boolean hasPreviousWindow() {
+        return false;
+    }
+
+    @Override
+    public boolean hasPreviousMediaItem() {
+        return false;
+    }
+
+    @Override
+    public void previous() {
+
+    }
+
+    @Override
+    public void seekToPreviousWindow() {
+
+    }
+
+    @Override
+    public void seekToPreviousMediaItem() {
+
+    }
+
+    @Override
+    public long getMaxSeekToPreviousPosition() {
+        return 0;
+    }
+
+    @Override
+    public void seekToPrevious() {
+
+    }
+
+    @Override
+    public boolean hasNext() {
+        return false;
+    }
+
+    @Override
+    public boolean hasNextWindow() {
+        return false;
+    }
+
+    @Override
+    public boolean hasNextMediaItem() {
+        return false;
+    }
+
+    @Override
+    public void next() {
+
+    }
+
+    @Override
+    public void seekToNextWindow() {
+
+    }
+
+    @Override
+    public void seekToNextMediaItem() {
+
+    }
+
+    @Override
+    public void seekToNext() {
+
+    }
+
+    @Override
+    public void setPlaybackParameters(PlaybackParameters playbackParameters) {
+
+    }
+
+    @Override
+    public void setPlaybackSpeed(float speed) {
+
+    }
+
+    @Override
+    public PlaybackParameters getPlaybackParameters() {
+        return null;
+    }
+
+    @Override
+    public void stop() {
+
+    }
+
+    @Nullable
+    @Override
+    public AudioComponent getAudioComponent() {
+        return null;
+    }
+
+    @Nullable
+    @Override
+    public VideoComponent getVideoComponent() {
+        return null;
+    }
+
+    @Nullable
+    @Override
+    public TextComponent getTextComponent() {
+        return null;
+    }
+
+    @Nullable
+    @Override
+    public DeviceComponent getDeviceComponent() {
+        return null;
+    }
+
+    @Override
+    public void addAudioOffloadListener(AudioOffloadListener listener) {
+
+    }
+
+    @Override
+    public void removeAudioOffloadListener(AudioOffloadListener listener) {
+
+    }
+
+    @Override
+    public AnalyticsCollector getAnalyticsCollector() {
+        return null;
+    }
+
+    @Override
+    public void addAnalyticsListener(AnalyticsListener listener) {
+
+    }
+
+    @Override
+    public void removeAnalyticsListener(AnalyticsListener listener) {
+
+    }
+
+    @Override
+    public int getRendererCount() {
+        return 0;
+    }
+
+    @Override
+    public int getRendererType(int index) {
+        return 0;
+    }
+
+    @Override
+    public Renderer getRenderer(int index) {
+        return null;
+    }
+
+    @Nullable
+    @Override
+    public TrackSelector getTrackSelector() {
+        return null;
+    }
+
+    @Override
+    public TrackGroupArray getCurrentTrackGroups() {
+        return null;
+    }
+
+    @Override
+    public TrackSelectionArray getCurrentTrackSelections() {
+        return null;
+    }
+
+    @Override
+    public Looper getPlaybackLooper() {
+        return null;
+    }
+
+    @Override
+    public Clock getClock() {
+        return null;
+    }
+
+    @Override
+    public void prepare(MediaSource mediaSource) {
+
+    }
+
+    @Override
+    public void prepare(MediaSource mediaSource, boolean resetPosition, boolean resetState) {
+
+    }
+
+    @Override
+    public void setMediaSources(List<MediaSource> mediaSources) {
+
+    }
+
+    @Override
+    public void setMediaSources(List<MediaSource> mediaSources, boolean resetPosition) {
+
+    }
+
+    @Override
+    public void setMediaSources(List<MediaSource> mediaSources, int startMediaItemIndex, long startPositionMs) {
+
+    }
+
+    @Override
+    public void setMediaSource(MediaSource mediaSource) {
+
+    }
+
+    @Override
+    public void setMediaSource(MediaSource mediaSource, long startPositionMs) {
+
+    }
+
+    @Override
+    public void setMediaSource(MediaSource mediaSource, boolean resetPosition) {
+
+    }
+
+    @Override
+    public void addMediaSource(MediaSource mediaSource) {
+
+    }
+
+    @Override
+    public void addMediaSource(int index, MediaSource mediaSource) {
+
+    }
+
+    @Override
+    public void addMediaSources(List<MediaSource> mediaSources) {
+
+    }
+
+    @Override
+    public void addMediaSources(int index, List<MediaSource> mediaSources) {
+
+    }
+
+    @Override
+    public void setShuffleOrder(ShuffleOrder shuffleOrder) {
+
+    }
+
+    @Override
+    public void setPreloadConfiguration(PreloadConfiguration preloadConfiguration) {
+
+    }
+
+    @Override
+    public PreloadConfiguration getPreloadConfiguration() {
+        return null;
+    }
+
+    @Override
+    public Looper getApplicationLooper() {
+        return null;
+    }
+
+    @Override
+    public void addListener(Player.Listener listener) {
+
+    }
+
+    @Override
+    public void removeListener(Player.Listener listener) {
+
+    }
+
+    @Override
     public void setMediaItems(List<MediaItem> mediaItems) {
-        if (!isInitialized) {
-            Log.w(TAG, "Player not initialized, cannot set media items");
-            return;
-        }
 
-        mainHandler.post(() -> {
-            try {
-                player.setMediaItems(mediaItems);
-                player.prepare();
-                Log.d(TAG, "Media items set, count: " + mediaItems.size());
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to set media items", e);
-            }
-        });
     }
 
-    /**
-     * Synchronize state from external source
-     */
-    public void syncState(Map<SyncItem, Object> stateUpdates, String source) {
-        synchronized (syncLock) {
-            long currentTime = System.currentTimeMillis();
-            if (currentTime - lastSyncTime < SYNC_THROTTLE_MS) {
-                Log.d(TAG, "Sync throttled, ignoring rapid sync call from " + source);
-                return;
-            }
-            lastSyncTime = currentTime;
-        }
+    @Override
+    public void setMediaItems(List<MediaItem> mediaItems, boolean resetPosition) {
 
-        mainHandler.post(() -> {
-            try {
-                Log.d(TAG, "Syncing state from " + source + ": " + stateUpdates.keySet());
-
-                for (Map.Entry<SyncItem, Object> entry : stateUpdates.entrySet()) {
-                    switch (entry.getKey()) {
-                        case PAUSED:
-                            if (entry.getValue() instanceof Boolean) {
-                                boolean shouldPlay = !(Boolean) entry.getValue();
-                                if (player.getPlayWhenReady() != shouldPlay) {
-                                    player.setPlayWhenReady(shouldPlay);
-                                }
-                            }
-                            break;
-
-                        case SEEK:
-                            if (entry.getValue() instanceof Long) {
-                                long position = (Long) entry.getValue();
-                                player.seekTo(position);
-                            } else if (entry.getValue() instanceof Double) {
-                                long position = (long) ((Double) entry.getValue() * 1000);
-                                player.seekTo(position);
-                            }
-                            break;
-
-                        case SPEED:
-                            if (entry.getValue() instanceof Float) {
-                                float speed = (Float) entry.getValue();
-                                PlaybackParameters params = new PlaybackParameters(speed, 1.0f);
-                                player.setPlaybackParameters(params);
-                            }
-                            break;
-
-                        case VOLUME:
-                            if (entry.getValue() instanceof Float) {
-                                float volume = (Float) entry.getValue();
-                                player.setVolume(volume);
-                            }
-                            break;
-
-                        case MEDIA_ITEM:
-                            if (entry.getValue() instanceof MediaItem mediaItem) {
-                                player.setMediaItem(mediaItem);
-                                player.prepare();
-                            } else if (entry.getValue() instanceof String uri) {
-                                MediaItem mediaItem = MediaItem.fromUri(uri);
-                                player.setMediaItem(mediaItem);
-                                player.prepare();
-                            }
-                            break;
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error syncing state", e);
-            }
-        });
     }
 
-    /**
-     * Get current playback state
-     */
-    public Map<SyncItem, Object> getCurrentState() {
-        Map<SyncItem, Object> state = new HashMap<>();
+    @Override
+    public void setMediaItems(List<MediaItem> mediaItems, int startIndex, long startPositionMs) {
 
-        if (player != null) {
-            state.put(SyncItem.PAUSED, !player.getPlayWhenReady());
-            state.put(SyncItem.SEEK, player.getCurrentPosition());
-            state.put(SyncItem.SPEED, player.getPlaybackParameters().speed);
-            state.put(SyncItem.VOLUME, player.getVolume());
-
-            MediaItem currentItem = player.getCurrentMediaItem();
-            if (currentItem != null) {
-                state.put(SyncItem.MEDIA_ITEM, currentItem);
-            }
-        }
-
-        return state;
     }
 
-    /**
-     * Get current media URI
-     */
-    public String getCurrentSource() {
-        return currentSource;
+    @Override
+    public void setMediaItem(MediaItem mediaItem) {
+
     }
 
-    private void notifyPlaybackStateChanged() {
-        if (player == null) return;
+    @Override
+    public void setMediaItem(MediaItem mediaItem, long startPositionMs) {
 
-        boolean isPlaying = player.getPlayWhenReady() && player.getPlaybackState() == Player.STATE_READY;
-        long position = player.getCurrentPosition();
-        float speed = player.getPlaybackParameters().speed;
-
-        for (PlaybackStateListener listener : listeners) {
-            try {
-                listener.onPlaybackStateChanged(isPlaying, position, speed);
-            } catch (Exception e) {
-                Log.e(TAG, "Error notifying listener", e);
-            }
-        }
     }
 
-    private void notifySeekCompleted(long position) {
-        for (PlaybackStateListener listener : listeners) {
-            try {
-                listener.onSeekCompleted(position);
-            } catch (Exception e) {
-                Log.e(TAG, "Error notifying listener", e);
-            }
-        }
+    @Override
+    public void setMediaItem(MediaItem mediaItem, boolean resetPosition) {
+
     }
 
-    private void notifyMediaItemChanged(@Nullable MediaItem mediaItem) {
-        for (PlaybackStateListener listener : listeners) {
-            try {
-                listener.onMediaItemChanged(mediaItem);
-            } catch (Exception e) {
-                Log.e(TAG, "Error notifying listener", e);
-            }
-        }
+    @Override
+    public void addMediaItem(MediaItem mediaItem) {
+
     }
 
-    private void notifyVolumeChanged(float volume) {
-        for (PlaybackStateListener listener : listeners) {
-            try {
-                listener.onVolumeChanged(volume);
-            } catch (Exception e) {
-                Log.e(TAG, "Error notifying listener", e);
-            }
-        }
+    @Override
+    public void addMediaItem(int index, MediaItem mediaItem) {
+
     }
 
-    private void notifyModeChanged() {
-        for (PlaybackStateListener listener : listeners) {
-            try {
-                listener.onModeChanged(isStandaloneMode, isReactNativeActive);
-            } catch (Exception e) {
-                Log.e(TAG, "Error notifying listener", e);
-            }
-        }
+    @Override
+    public void addMediaItems(List<MediaItem> mediaItems) {
+
     }
 
-    /**
-     * Release resources - should only be called when the app is completely shutting down
-     */
+    @Override
+    public void addMediaItems(int index, List<MediaItem> mediaItems) {
+
+    }
+
+    @Override
+    public void moveMediaItem(int currentIndex, int newIndex) {
+
+    }
+
+    @Override
+    public void moveMediaItems(int fromIndex, int toIndex, int newIndex) {
+
+    }
+
+    @Override
+    public void replaceMediaItem(int index, MediaItem mediaItem) {
+
+    }
+
+    @Override
+    public void replaceMediaItems(int fromIndex, int toIndex, List<MediaItem> mediaItems) {
+
+    }
+
+    @Override
+    public void removeMediaItem(int index) {
+
+    }
+
+    @Override
+    public void removeMediaItems(int fromIndex, int toIndex) {
+
+    }
+
+    @Override
+    public void clearMediaItems() {
+
+    }
+
+    @Override
+    public boolean isCommandAvailable(int command) {
+        return false;
+    }
+
+    @Override
+    public boolean canAdvertiseSession() {
+        return false;
+    }
+
+    @Override
+    public Commands getAvailableCommands() {
+        return null;
+    }
+
+    @Override
+    public void prepare() {
+
+    }
+
+    @Override
+    public int getPlaybackState() {
+        return 0;
+    }
+
+    @Override
+    public int getPlaybackSuppressionReason() {
+        return 0;
+    }
+
+    @Override
+    public boolean isPlaying() {
+        return false;
+    }
+
+    @Override
+    public void setAudioSessionId(int audioSessionId) {
+
+    }
+
+    @Override
+    public int getAudioSessionId() {
+        return 0;
+    }
+
+    @Override
+    public void setAuxEffectInfo(AuxEffectInfo auxEffectInfo) {
+
+    }
+
+    @Override
+    public void clearAuxEffectInfo() {
+
+    }
+
+    @Override
+    public void setPreferredAudioDevice(@Nullable AudioDeviceInfo audioDeviceInfo) {
+
+    }
+
+    @Override
+    public void setSkipSilenceEnabled(boolean skipSilenceEnabled) {
+
+    }
+
+    @Override
+    public boolean getSkipSilenceEnabled() {
+        return false;
+    }
+
+    @Override
+    public void setVideoEffects(List<Effect> videoEffects) {
+
+    }
+
+    @Override
+    public void setVideoScalingMode(int videoScalingMode) {
+
+    }
+
+    @Override
+    public int getVideoScalingMode() {
+        return 0;
+    }
+
+    @Override
+    public void setVideoChangeFrameRateStrategy(int videoChangeFrameRateStrategy) {
+
+    }
+
+    @Override
+    public int getVideoChangeFrameRateStrategy() {
+        return 0;
+    }
+
+    @Override
+    public void setVideoFrameMetadataListener(VideoFrameMetadataListener listener) {
+
+    }
+
+    @Override
+    public void clearVideoFrameMetadataListener(VideoFrameMetadataListener listener) {
+
+    }
+
+    @Override
+    public void setCameraMotionListener(CameraMotionListener listener) {
+
+    }
+
+    @Override
+    public void clearCameraMotionListener(CameraMotionListener listener) {
+
+    }
+
+    @Override
+    public PlayerMessage createMessage(PlayerMessage.Target target) {
+        return null;
+    }
+
+    @Override
+    public void setSeekParameters(@Nullable SeekParameters seekParameters) {
+
+    }
+
+    @Override
+    public SeekParameters getSeekParameters() {
+        return null;
+    }
+
+    @Override
+    public void setForegroundMode(boolean foregroundMode) {
+
+    }
+
+    @Override
+    public void setPauseAtEndOfMediaItems(boolean pauseAtEndOfMediaItems) {
+
+    }
+
+    @Override
+    public boolean getPauseAtEndOfMediaItems() {
+        return false;
+    }
+
+    @Nullable
+    @Override
+    public Format getAudioFormat() {
+        return null;
+    }
+
+    @Nullable
+    @Override
+    public Format getVideoFormat() {
+        return null;
+    }
+
+    @Nullable
+    @Override
+    public DecoderCounters getAudioDecoderCounters() {
+        return null;
+    }
+
+    @Nullable
+    @Override
+    public DecoderCounters getVideoDecoderCounters() {
+        return null;
+    }
+
+    @Override
+    public void setHandleAudioBecomingNoisy(boolean handleAudioBecomingNoisy) {
+
+    }
+
+    @Override
+    public void setWakeMode(int wakeMode) {
+
+    }
+
+    @Override
+    public void setPriority(int priority) {
+
+    }
+
+    @Override
+    public void setPriorityTaskManager(@Nullable PriorityTaskManager priorityTaskManager) {
+
+    }
+
+    @Override
+    public boolean isSleepingForOffload() {
+        return false;
+    }
+
+    @Override
+    public boolean isTunnelingEnabled() {
+        return false;
+    }
+
+    @Override
     public void release() {
-        mainHandler.post(() -> {
-            if (player != null) {
-                player.release();
-                player = null;
-            }
-            listeners.clear();
-            isInitialized = false;
-            isStandaloneMode = false;
-            isReactNativeActive = false;
-            currentSource = null;
-            Log.d(TAG, "CentralizedPlaybackManager released");
-        });
 
-        synchronized (CentralizedPlaybackManager.class) {
-            instance = null;
-        }
+    }
+
+    @Override
+    public Tracks getCurrentTracks() {
+        return null;
+    }
+
+    @Override
+    public TrackSelectionParameters getTrackSelectionParameters() {
+        return null;
+    }
+
+    @Override
+    public void setTrackSelectionParameters(TrackSelectionParameters parameters) {
+
+    }
+
+    @Override
+    public MediaMetadata getMediaMetadata() {
+        return null;
+    }
+
+    @Override
+    public MediaMetadata getPlaylistMetadata() {
+        return null;
+    }
+
+    @Override
+    public void setPlaylistMetadata(MediaMetadata mediaMetadata) {
+
+    }
+
+    @Nullable
+    @Override
+    public Object getCurrentManifest() {
+        return null;
+    }
+
+    @Override
+    public Timeline getCurrentTimeline() {
+        return null;
+    }
+
+    @Override
+    public int getCurrentPeriodIndex() {
+        return 0;
+    }
+
+    @Override
+    public int getCurrentWindowIndex() {
+        return 0;
+    }
+
+    @Override
+    public int getCurrentMediaItemIndex() {
+        return 0;
+    }
+
+    @Override
+    public int getNextWindowIndex() {
+        return 0;
+    }
+
+    @Override
+    public int getNextMediaItemIndex() {
+        return 0;
+    }
+
+    @Override
+    public int getPreviousWindowIndex() {
+        return 0;
+    }
+
+    @Override
+    public int getPreviousMediaItemIndex() {
+        return 0;
+    }
+
+    @Nullable
+    @Override
+    public MediaItem getCurrentMediaItem() {
+        return null;
+    }
+
+    @Override
+    public int getMediaItemCount() {
+        return 0;
+    }
+
+    @Override
+    public MediaItem getMediaItemAt(int index) {
+        return null;
+    }
+
+    @Override
+    public long getDuration() {
+        return 0;
+    }
+
+    @Override
+    public long getCurrentPosition() {
+        return 0;
+    }
+
+    @Override
+    public long getBufferedPosition() {
+        return 0;
+    }
+
+    @Override
+    public int getBufferedPercentage() {
+        return 0;
+    }
+
+    @Override
+    public long getTotalBufferedDuration() {
+        return 0;
+    }
+
+    @Override
+    public boolean isCurrentWindowDynamic() {
+        return false;
+    }
+
+    @Override
+    public boolean isCurrentMediaItemDynamic() {
+        return false;
+    }
+
+    @Override
+    public boolean isCurrentWindowLive() {
+        return false;
+    }
+
+    @Override
+    public boolean isCurrentMediaItemLive() {
+        return false;
+    }
+
+    @Override
+    public long getCurrentLiveOffset() {
+        return 0;
+    }
+
+    @Override
+    public boolean isCurrentWindowSeekable() {
+        return false;
+    }
+
+    @Override
+    public boolean isCurrentMediaItemSeekable() {
+        return false;
+    }
+
+    @Override
+    public boolean isPlayingAd() {
+        return false;
+    }
+
+    @Override
+    public int getCurrentAdGroupIndex() {
+        return 0;
+    }
+
+    @Override
+    public int getCurrentAdIndexInAdGroup() {
+        return 0;
+    }
+
+    @Override
+    public long getContentDuration() {
+        return 0;
+    }
+
+    @Override
+    public long getContentPosition() {
+        return 0;
+    }
+
+    @Override
+    public long getContentBufferedPosition() {
+        return 0;
+    }
+
+    @Override
+    public AudioAttributes getAudioAttributes() {
+        return null;
+    }
+
+    @Override
+    public void setVolume(float volume) {
+
+    }
+
+    @Override
+    public float getVolume() {
+        return 0;
+    }
+
+    @Override
+    public void clearVideoSurface() {
+
+    }
+
+    @Override
+    public void clearVideoSurface(@Nullable Surface surface) {
+
+    }
+
+    @Override
+    public void setVideoSurface(@Nullable Surface surface) {
+
+    }
+
+    @Override
+    public void setVideoSurfaceHolder(@Nullable SurfaceHolder surfaceHolder) {
+
+    }
+
+    @Override
+    public void clearVideoSurfaceHolder(@Nullable SurfaceHolder surfaceHolder) {
+
+    }
+
+    @Override
+    public void setVideoSurfaceView(@Nullable SurfaceView surfaceView) {
+
+    }
+
+    @Override
+    public void clearVideoSurfaceView(@Nullable SurfaceView surfaceView) {
+
+    }
+
+    @Override
+    public void setVideoTextureView(@Nullable TextureView textureView) {
+
+    }
+
+    @Override
+    public void clearVideoTextureView(@Nullable TextureView textureView) {
+
+    }
+
+    @Override
+    public VideoSize getVideoSize() {
+        return null;
+    }
+
+    @Override
+    public Size getSurfaceSize() {
+        return null;
+    }
+
+    @Override
+    public CueGroup getCurrentCues() {
+        return null;
+    }
+
+    @Override
+    public DeviceInfo getDeviceInfo() {
+        return null;
+    }
+
+    @Override
+    public int getDeviceVolume() {
+        return 0;
+    }
+
+    @Override
+    public boolean isDeviceMuted() {
+        return false;
+    }
+
+    @Override
+    public void setDeviceVolume(int volume) {
+
+    }
+
+    @Override
+    public void setDeviceVolume(int volume, int flags) {
+
+    }
+
+    @Override
+    public void increaseDeviceVolume() {
+
+    }
+
+    @Override
+    public void increaseDeviceVolume(int flags) {
+
+    }
+
+    @Override
+    public void decreaseDeviceVolume() {
+
+    }
+
+    @Override
+    public void decreaseDeviceVolume(int flags) {
+
+    }
+
+    @Override
+    public void setDeviceMuted(boolean muted) {
+
+    }
+
+    @Override
+    public void setDeviceMuted(boolean muted, int flags) {
+
+    }
+
+    @Override
+    public void setAudioAttributes(AudioAttributes audioAttributes, boolean handleAudioFocus) {
+
+    }
+
+    @Override
+    public boolean isReleased() {
+        return false;
+    }
+
+    @Override
+    public void setImageOutput(@Nullable ImageOutput imageOutput) {
+
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
     }
 }
