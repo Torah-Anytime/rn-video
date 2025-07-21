@@ -1117,288 +1117,512 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     @Override
     public void setCameraMotionListener(CameraMotionListener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setCameraMotionListener(listener));
+            return;
+        }
+        player.setCameraMotionListener(listener);
     }
 
     @Override
     public void clearCameraMotionListener(CameraMotionListener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> clearCameraMotionListener(listener));
+            return;
+        }
+        player.clearCameraMotionListener(listener);
     }
 
     @Override
     public PlayerMessage createMessage(PlayerMessage.Target target) {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (PlayerMessage) convertToMainThreadTask(() -> createMessage(target));
+        }else{
+            return player.createMessage(target);
+        }
     }
 
     @Override
     public void setSeekParameters(@Nullable SeekParameters seekParameters) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setSeekParameters(seekParameters));
+            return;
+        }
+        player.setSeekParameters(seekParameters);
     }
 
     @Override
     public SeekParameters getSeekParameters() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (SeekParameters) convertToMainThreadTask(this::getSeekParameters);
+        }else{
+            return player.getSeekParameters();
+        }
     }
 
     @Override
     public void setForegroundMode(boolean foregroundMode) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setForegroundMode(foregroundMode));
+            return;
+        }
+        player.setForegroundMode(foregroundMode);
     }
 
     @Override
     public void setPauseAtEndOfMediaItems(boolean pauseAtEndOfMediaItems) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPauseAtEndOfMediaItems(pauseAtEndOfMediaItems));
+            return;
+        }
+        player.setPauseAtEndOfMediaItems(pauseAtEndOfMediaItems);
     }
 
     @Override
     public boolean getPauseAtEndOfMediaItems() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::getPauseAtEndOfMediaItems);
+        }else{
+            return player.getPauseAtEndOfMediaItems();
+        }
     }
 
     @Nullable
     @Override
     public Format getAudioFormat() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Format) convertToMainThreadTask(this::getAudioFormat);
+        }else{
+            return player.getAudioFormat();
+        }
     }
 
     @Nullable
     @Override
     public Format getVideoFormat() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Format) convertToMainThreadTask(this::getVideoFormat);
+        }else{
+            return player.getVideoFormat();
+        }
     }
 
     @Nullable
     @Override
     public DecoderCounters getAudioDecoderCounters() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (DecoderCounters) convertToMainThreadTask(this::getAudioDecoderCounters);
+        }else{
+            return player.getAudioDecoderCounters();
+        }
     }
 
     @Nullable
     @Override
     public DecoderCounters getVideoDecoderCounters() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (DecoderCounters) convertToMainThreadTask(this::getVideoDecoderCounters);
+        }else{
+            return player.getVideoDecoderCounters();
+        }
     }
 
     @Override
     public void setHandleAudioBecomingNoisy(boolean handleAudioBecomingNoisy) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setHandleAudioBecomingNoisy(handleAudioBecomingNoisy));
+            return;
+        }
+        player.setHandleAudioBecomingNoisy(handleAudioBecomingNoisy);
     }
 
     @Override
     public void setWakeMode(int wakeMode) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setWakeMode(wakeMode));
+            return;
+        }
+        player.setWakeMode(wakeMode);
     }
 
     @Override
     public void setPriority(int priority) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPriority(priority));
+            return;
+        }
+        player.setPriority(priority);
     }
 
     @Override
     public void setPriorityTaskManager(@Nullable PriorityTaskManager priorityTaskManager) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPriorityTaskManager(priorityTaskManager));
+            return;
+        }
+        player.setPriorityTaskManager(priorityTaskManager);
     }
 
     @Override
     public boolean isSleepingForOffload() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isSleepingForOffload);
+        }else{
+            return player.isSleepingForOffload();
+        }
     }
 
     @Override
     public boolean isTunnelingEnabled() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isTunnelingEnabled);
+        }else{
+            return player.isTunnelingEnabled();
+        }
     }
 
     @Override
     public void release() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::release);
+            return;
+        }
+        player.release();
     }
 
     @Override
     public Tracks getCurrentTracks() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Tracks) convertToMainThreadTask(this::getCurrentTracks);
+        }else{
+            return player.getCurrentTracks();
+        }
     }
 
     @Override
     public TrackSelectionParameters getTrackSelectionParameters() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (TrackSelectionParameters) convertToMainThreadTask(this::getTrackSelectionParameters);
+        }else{
+            return player.getTrackSelectionParameters();
+        }
     }
 
     @Override
     public void setTrackSelectionParameters(TrackSelectionParameters parameters) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setTrackSelectionParameters(parameters));
+            return;
+        }
+        player.setTrackSelectionParameters(parameters);
     }
 
     @Override
     public MediaMetadata getMediaMetadata() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (MediaMetadata) convertToMainThreadTask(this::getMediaMetadata);
+        }else{
+            return player.getMediaMetadata();
+        }
     }
 
     @Override
     public MediaMetadata getPlaylistMetadata() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (MediaMetadata) convertToMainThreadTask(this::getPlaylistMetadata);
+        }else{
+            return player.getPlaylistMetadata();
+        }
     }
 
     @Override
     public void setPlaylistMetadata(MediaMetadata mediaMetadata) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPlaylistMetadata(mediaMetadata));
+            return;
+        }
+        player.setPlaylistMetadata(mediaMetadata);
     }
 
     @Nullable
     @Override
     public Object getCurrentManifest() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return convertToMainThreadTask(this::getCurrentManifest);
+        }else{
+            return player.getCurrentManifest();
+        }
     }
 
     @Override
     public Timeline getCurrentTimeline() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Timeline) convertToMainThreadTask(this::getCurrentTimeline);
+        }else{
+            return player.getCurrentTimeline();
+        }
     }
 
     @Override
     public int getCurrentPeriodIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getCurrentPeriodIndex);
+        }else{
+            return player.getCurrentPeriodIndex();
+        }
     }
 
     @Override
     public int getCurrentWindowIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getCurrentWindowIndex);
+        }else{
+            return player.getCurrentWindowIndex();
+        }
     }
 
     @Override
     public int getCurrentMediaItemIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getCurrentMediaItemIndex);
+        }else{
+            return player.getCurrentMediaItemIndex();
+        }
     }
 
     @Override
     public int getNextWindowIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getNextWindowIndex);
+        }else{
+            return player.getNextWindowIndex();
+        }
     }
 
     @Override
     public int getNextMediaItemIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getNextMediaItemIndex);
+        }else{
+            return player.getNextMediaItemIndex();
+        }
     }
 
     @Override
     public int getPreviousWindowIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getPreviousWindowIndex);
+        }else{
+            return player.getPreviousWindowIndex();
+        }
     }
 
     @Override
     public int getPreviousMediaItemIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getPreviousMediaItemIndex);
+        }else{
+            return player.getPreviousMediaItemIndex();
+        }
     }
 
     @Nullable
     @Override
     public MediaItem getCurrentMediaItem() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (MediaItem) convertToMainThreadTask(this::getCurrentMediaItem);
+        }else{
+            return player.getCurrentMediaItem();
+        }
     }
 
     @Override
     public int getMediaItemCount() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getMediaItemCount);
+        }else{
+            return player.getMediaItemCount();
+        }
     }
 
     @Override
     public MediaItem getMediaItemAt(int index) {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (MediaItem) convertToMainThreadTask(() -> getMediaItemAt(index));
+        }else{
+            return player.getMediaItemAt(index);
+        }
     }
 
     @Override
     public long getDuration() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getDuration);
+        }else{
+            return player.getDuration();
+        }
     }
 
     @Override
     public long getCurrentPosition() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getCurrentPosition);
+        }else{
+            return player.getCurrentPosition();
+        }
     }
 
     @Override
     public long getBufferedPosition() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getBufferedPosition);
+        }else{
+            return player.getBufferedPosition();
+        }
     }
 
     @Override
     public int getBufferedPercentage() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getBufferedPercentage);
+        }else{
+            return player.getBufferedPercentage();
+        }
     }
 
     @Override
     public long getTotalBufferedDuration() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getTotalBufferedDuration);
+        }else{
+            return player.getTotalBufferedDuration();
+        }
     }
 
     @Override
     public boolean isCurrentWindowDynamic() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isCurrentWindowDynamic);
+        }else{
+            return player.isCurrentWindowDynamic();
+        }
     }
 
     @Override
     public boolean isCurrentMediaItemDynamic() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isCurrentMediaItemDynamic);
+        }else{
+            return player.isCurrentMediaItemDynamic();
+        }
     }
 
     @Override
     public boolean isCurrentWindowLive() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isCurrentWindowLive);
+        }else{
+            return player.isCurrentWindowLive();
+        }
     }
 
     @Override
     public boolean isCurrentMediaItemLive() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isCurrentMediaItemLive);
+        }else{
+            return player.isCurrentMediaItemLive();
+        }
     }
 
     @Override
     public long getCurrentLiveOffset() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getCurrentLiveOffset);
+        }else{
+            return player.getCurrentLiveOffset();
+        }
     }
 
     @Override
     public boolean isCurrentWindowSeekable() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isCurrentWindowSeekable);
+        }else{
+            return player.isCurrentWindowSeekable();
+        }
     }
 
     @Override
     public boolean isCurrentMediaItemSeekable() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isCurrentMediaItemSeekable);
+        }else{
+            return player.isCurrentMediaItemSeekable();
+        }
     }
 
     @Override
     public boolean isPlayingAd() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isPlayingAd);
+        }else{
+            return player.isPlayingAd();
+        }
     }
 
     @Override
     public int getCurrentAdGroupIndex() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getCurrentAdGroupIndex);
+        }else{
+            return player.getCurrentAdGroupIndex();
+        }
     }
 
     @Override
     public int getCurrentAdIndexInAdGroup() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getCurrentAdIndexInAdGroup);
+        }else{
+            return player.getCurrentAdIndexInAdGroup();
+        }
     }
 
     @Override
     public long getContentDuration() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getContentDuration);
+        }else{
+            return player.getContentDuration();
+        }
     }
 
     @Override
     public long getContentPosition() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getContentPosition);
+        }else{
+            return player.getContentPosition();
+        }
     }
 
     @Override
     public long getContentBufferedPosition() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getContentBufferedPosition);
+        }else{
+            return player.getContentBufferedPosition();
+        }
     }
 
     @Override
     public AudioAttributes getAudioAttributes() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (AudioAttributes) convertToMainThreadTask(this::getAudioAttributes);
+        }else{
+            return player.getAudioAttributes();
+        }
     }
 
     @Override
