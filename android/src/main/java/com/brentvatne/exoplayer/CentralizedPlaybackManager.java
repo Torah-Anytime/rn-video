@@ -640,152 +640,272 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     @Override
     public void setMediaSources(List<MediaSource> mediaSources, boolean resetPosition) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaSources(mediaSources, resetPosition));
+            return;
+        }
+        player.setMediaSources(mediaSources, resetPosition);
     }
 
     @Override
     public void setMediaSources(List<MediaSource> mediaSources, int startMediaItemIndex, long startPositionMs) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaSources(mediaSources, startMediaItemIndex, startPositionMs));
+            return;
+        }
+        player.setMediaSources(mediaSources, startMediaItemIndex, startPositionMs);
     }
 
     @Override
     public void setMediaSource(MediaSource mediaSource) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaSource(mediaSource));
+            return;
+        }
+        player.setMediaSource(mediaSource);
     }
 
     @Override
     public void setMediaSource(MediaSource mediaSource, long startPositionMs) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaSource(mediaSource, startPositionMs));
+            return;
+        }
+        player.setMediaSource(mediaSource, startPositionMs);
     }
 
     @Override
     public void setMediaSource(MediaSource mediaSource, boolean resetPosition) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaSource(mediaSource, resetPosition));
+            return;
+        }
+        player.setMediaSource(mediaSource, resetPosition);
     }
 
     @Override
     public void addMediaSource(MediaSource mediaSource) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaSource(mediaSource));
+            return;
+        }
+        player.addMediaSource(mediaSource);
     }
 
     @Override
     public void addMediaSource(int index, MediaSource mediaSource) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaSource(index,mediaSource));
+            return;
+        }
+        player.addMediaSource(index, mediaSource);
     }
 
     @Override
     public void addMediaSources(List<MediaSource> mediaSources) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaSources(mediaSources));
+            return;
+        }
+        player.addMediaSources(mediaSources);
     }
 
     @Override
     public void addMediaSources(int index, List<MediaSource> mediaSources) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaSources(index,mediaSources));
+            return;
+        }
+        player.addMediaSources(index,mediaSources);
     }
 
     @Override
     public void setShuffleOrder(ShuffleOrder shuffleOrder) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setShuffleOrder(shuffleOrder));
+            return;
+        }
+        player.setShuffleOrder(shuffleOrder);
     }
 
     @Override
     public void setPreloadConfiguration(PreloadConfiguration preloadConfiguration) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPreloadConfiguration(preloadConfiguration));
+            return;
+        }
+        player.setPreloadConfiguration(preloadConfiguration);
     }
 
     @Override
     public PreloadConfiguration getPreloadConfiguration() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (PreloadConfiguration) convertToMainThreadTask(this::getPreloadConfiguration);
+        }else{
+            return player.getPreloadConfiguration();
+        }
     }
 
     @Override
     public Looper getApplicationLooper() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Looper) convertToMainThreadTask(this::getApplicationLooper);
+        }else{
+            return player.getApplicationLooper();
+        }
     }
 
     @Override
     public void addListener(Player.Listener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addListener(listener));
+            return;
+        }
+        player.addListener(listener);
     }
 
     @Override
     public void removeListener(Player.Listener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> removeListener(listener));
+            return;
+        }
+        player.removeListener(listener);
     }
 
     @Override
     public void setMediaItems(List<MediaItem> mediaItems) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaItems(mediaItems));
+            return;
+        }
+        player.setMediaItems(mediaItems);
     }
 
     @Override
     public void setMediaItems(List<MediaItem> mediaItems, boolean resetPosition) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaItems(mediaItems, resetPosition));
+            return;
+        }
+        player.setMediaItems(mediaItems, resetPosition);
     }
 
     @Override
     public void setMediaItems(List<MediaItem> mediaItems, int startIndex, long startPositionMs) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaItems(mediaItems, startIndex, startPositionMs));
+            return;
+        }
+        player.setMediaItems(mediaItems, startIndex, startPositionMs);
     }
 
     @Override
     public void setMediaItem(MediaItem mediaItem) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaItem(mediaItem));
+            return;
+        }
+        player.setMediaItem(mediaItem);
     }
 
     @Override
     public void setMediaItem(MediaItem mediaItem, long startPositionMs) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaItem(mediaItem, startPositionMs));
+            return;
+        }
+        player.setMediaItem(mediaItem, startPositionMs);
     }
 
     @Override
     public void setMediaItem(MediaItem mediaItem, boolean resetPosition) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaItem(mediaItem, resetPosition));
+            return;
+        }
+        player.setMediaItem(mediaItem, resetPosition);
     }
 
     @Override
     public void addMediaItem(MediaItem mediaItem) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaItem(mediaItem));
+            return;
+        }
+        player.addMediaItem(mediaItem);
     }
 
     @Override
     public void addMediaItem(int index, MediaItem mediaItem) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaItem(index, mediaItem));
+            return;
+        }
+        player.addMediaItem(index, mediaItem);
     }
 
     @Override
     public void addMediaItems(List<MediaItem> mediaItems) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaItems(mediaItems));
+            return;
+        }
+        player.addMediaItems(mediaItems);
     }
 
     @Override
     public void addMediaItems(int index, List<MediaItem> mediaItems) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addMediaItems(index,mediaItems));
+            return;
+        }
+        player.addMediaItems(index,mediaItems);
     }
 
     @Override
     public void moveMediaItem(int currentIndex, int newIndex) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> moveMediaItem(currentIndex,newIndex));
+            return;
+        }
+        player.moveMediaItem(currentIndex,newIndex);
     }
 
     @Override
     public void moveMediaItems(int fromIndex, int toIndex, int newIndex) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> moveMediaItems(fromIndex,toIndex,newIndex));
+            return;
+        }
+        player.moveMediaItems(fromIndex,toIndex,newIndex);
     }
 
     @Override
     public void replaceMediaItem(int index, MediaItem mediaItem) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> replaceMediaItem(index,mediaItem));
+            return;
+        }
+        player.replaceMediaItem(index,mediaItem);
     }
 
     @Override
     public void replaceMediaItems(int fromIndex, int toIndex, List<MediaItem> mediaItems) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> replaceMediaItems(fromIndex,toIndex,mediaItems));
+            return;
+        }
+        player.replaceMediaItems(fromIndex,toIndex,mediaItems);
     }
 
     @Override
     public void removeMediaItem(int index) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> removeMediaItem(index));
+            return;
+        }
+        player.removeMediaItem(index);
     }
 
     @Override
