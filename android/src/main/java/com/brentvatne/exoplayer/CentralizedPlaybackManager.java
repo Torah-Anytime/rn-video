@@ -1,6 +1,5 @@
 package com.brentvatne.exoplayer;
 
-import android.content.Context;
 import android.content.Intent;
 import android.media.AudioDeviceInfo;
 import android.os.Handler;
@@ -12,7 +11,6 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.AuxEffectInfo;
@@ -36,7 +34,6 @@ import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.PlayerMessage;
 import androidx.media3.exoplayer.Renderer;
-import androidx.media3.exoplayer.RenderersFactory;
 import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.analytics.AnalyticsCollector;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
@@ -51,13 +48,14 @@ import androidx.media3.exoplayer.video.spherical.CameraMotionListener;
 
 import android.app.Service;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executor;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
+
 
 /**
  * Centralized playback manager that provides a single ExoPlayer instance
@@ -66,14 +64,16 @@ import java.util.concurrent.TimeoutException;
  */
 public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private static final String TAG = "CentralizedPlaybackManager";
+
+    private final long COMMUNICATION_WAIT = 30000;
+
     private static volatile CentralizedPlaybackManager instance;
 
+    private final Handler mainHandler;
     private ExoPlayer player;
 
-    //Initialization
-    private CentralizedPlaybackManager(){
-        this.player = new ExoPlayer.Builder(this.getApplicationContext()).build();
-    }
+
+    //===== Initialization =====
 
     public static synchronized CentralizedPlaybackManager getInstance(){
         if(instance == null){
@@ -82,82 +82,176 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         return instance;
     }
 
+    private CentralizedPlaybackManager(){
+        this.mainHandler = new Handler(Looper.getMainLooper());
+        setupPlayer();
+    }
+
+    private void setupPlayer(){
+        // Ensure we're on the main thread
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::setupPlayer);
+            return;
+        }
+
+        this.player = new ExoPlayer.Builder(this.getApplicationContext()).build();
+    }
+
+    //===== Util =====
+
+    private Object convertToMainThreadTask(Supplier<Object> operation){
+        try {
+            CountDownLatch lock = new CountDownLatch(1);
+            AtomicReference<Object> result = new AtomicReference<>();
+            mainHandler.post(() -> {
+                result.set(operation.get());
+                lock.countDown();
+            });
+            boolean completed = lock.await(COMMUNICATION_WAIT, TimeUnit.MILLISECONDS);
+            if(!completed) throw new InterruptedException("Timed out when communicating with internal player");
+            return result.get();
+        } catch (InterruptedException e) {
+            Log.e(TAG,"Interrupted when contacting CentralPlaybackManager internal player: " + e.getMessage() + ", returning null");
+            return null;
+        }
+    }
+
     //===== Overrides =====
 
     @Nullable
     @Override
     public ExoPlaybackException getPlayerError() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+           return (ExoPlaybackException) convertToMainThreadTask(() -> player.getPlayerError());
+        }else {
+            return player.getPlayerError();
+        }
     }
 
     @Override
     public void play() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::play);
+            return;
+        }
+        player.play();
     }
 
     @Override
     public void pause() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::pause);
+            return;
+        }
+        player.pause();
     }
 
     @Override
     public void setPlayWhenReady(boolean playWhenReady) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> this.setPlayWhenReady(playWhenReady));
+            return;
+        }
+        player.setPlayWhenReady(playWhenReady);
     }
 
     @Override
     public boolean getPlayWhenReady() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::getPlayWhenReady);
+        }else {
+            return player.getPlayWhenReady();
+        }
     }
 
     @Override
     public void setRepeatMode(int repeatMode) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> this.setRepeatMode(repeatMode));
+            return;
+        }
+        player.setRepeatMode(repeatMode);
     }
 
     @Override
     public int getRepeatMode() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getRepeatMode);
+        }else {
+            return player.getRepeatMode();
+        }
     }
 
     @Override
     public void setShuffleModeEnabled(boolean shuffleModeEnabled) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> this.setShuffleModeEnabled(shuffleModeEnabled));
+            return;
+        }
+        player.setShuffleModeEnabled(shuffleModeEnabled);
     }
 
     @Override
     public boolean getShuffleModeEnabled() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::getShuffleModeEnabled);
+        }else{
+            return player.getShuffleModeEnabled();
+        }
     }
 
     @Override
     public boolean isLoading() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isLoading);
+        }else{
+            return player.isLoading();
+        }
     }
 
     @Override
     public void seekToDefaultPosition() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekToDefaultPosition);
+            return;
+        }
+        player.seekToDefaultPosition();
     }
 
     @Override
     public void seekToDefaultPosition(int mediaItemIndex) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> this.seekToDefaultPosition(mediaItemIndex));
+            return;
+        }
+        player.seekToDefaultPosition(mediaItemIndex);
     }
 
     @Override
     public void seekTo(long positionMs) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> this.seekTo(positionMs));
+            return;
+        }
+        player.seekTo(positionMs);
     }
 
     @Override
     public void seekTo(int mediaItemIndex, long positionMs) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> this.seekTo(mediaItemIndex,positionMs));
+            return;
+        }
+        player.seekTo(mediaItemIndex,positionMs);
     }
 
     @Override
     public long getSeekBackIncrement() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getSeekBackIncrement);
+        }else{
+            return player.getSeekBackIncrement();
+        }
     }
 
     @Override
