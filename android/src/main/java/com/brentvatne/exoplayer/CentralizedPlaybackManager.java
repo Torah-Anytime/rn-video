@@ -54,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 
@@ -256,217 +257,385 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     @Override
     public void seekBack() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekBack);
+            return;
+        }
+        player.seekBack();
     }
 
     @Override
     public long getSeekForwardIncrement() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getSeekForwardIncrement);
+        }else{
+            return player.getSeekForwardIncrement();
+        }
     }
 
     @Override
     public void seekForward() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekForward);
+            return;
+        }
+        player.seekForward();
     }
 
     @Override
     public boolean hasPrevious() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::hasPrevious);
+        }else{
+            return player.hasPrevious();
+        }
     }
 
     @Override
     public boolean hasPreviousWindow() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::hasPreviousWindow);
+        }else{
+            return player.hasPreviousWindow();
+        }
     }
 
     @Override
     public boolean hasPreviousMediaItem() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::hasPreviousMediaItem);
+        }else{
+            return player.hasPreviousMediaItem();
+        }
     }
 
     @Override
     public void previous() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::previous);
+            return;
+        }
+        player.previous();
     }
 
     @Override
     public void seekToPreviousWindow() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekToPreviousWindow);
+            return;
+        }
+        player.seekToPreviousWindow();
     }
 
     @Override
     public void seekToPreviousMediaItem() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekToPreviousMediaItem);
+            return;
+        }
+        player.seekToPreviousMediaItem();
     }
 
     @Override
     public long getMaxSeekToPreviousPosition() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (long) convertToMainThreadTask(this::getMaxSeekToPreviousPosition);
+        }else{
+            return player.getMaxSeekToPreviousPosition();
+        }
     }
 
     @Override
     public void seekToPrevious() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekToPrevious);
+            return;
+        }
+        player.seekToPrevious();
     }
 
     @Override
     public boolean hasNext() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::hasNext);
+        }else{
+            return player.hasNext();
+        }
     }
 
     @Override
     public boolean hasNextWindow() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::hasNextWindow);
+        }else{
+            return player.hasNextWindow();
+        }
     }
 
     @Override
     public boolean hasNextMediaItem() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::hasNextMediaItem);
+        }else{
+            return player.hasNextMediaItem();
+        }
     }
 
     @Override
     public void next() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::next);
+            return;
+        }
+        player.next();
     }
 
     @Override
     public void seekToNextWindow() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekToNextWindow);
+            return;
+        }
+        player.seekToNextWindow();
     }
 
     @Override
     public void seekToNextMediaItem() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekToNextMediaItem);
+            return;
+        }
+        player.seekToNextMediaItem();
     }
 
     @Override
     public void seekToNext() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::seekToNext);
+            return;
+        }
+        player.seekToNext();
     }
 
     @Override
     public void setPlaybackParameters(PlaybackParameters playbackParameters) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPlaybackParameters(playbackParameters));
+            return;
+        }
+        player.setPlaybackParameters(playbackParameters);
     }
 
     @Override
     public void setPlaybackSpeed(float speed) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPlaybackSpeed(speed));
+            return;
+        }
+        player.setPlaybackSpeed(speed);
     }
 
     @Override
     public PlaybackParameters getPlaybackParameters() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (PlaybackParameters) convertToMainThreadTask(this::getPlaybackParameters);
+        }else{
+            return player.getPlaybackParameters();
+        }
     }
 
     @Override
     public void stop() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::stop);
+            return;
+        }
+        player.stop();
     }
 
     @Nullable
     @Override
     public AudioComponent getAudioComponent() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (AudioComponent) convertToMainThreadTask(this::getAudioComponent);
+        }else{
+            return player.getAudioComponent();
+        }
     }
 
     @Nullable
     @Override
     public VideoComponent getVideoComponent() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (VideoComponent) convertToMainThreadTask(this::getVideoComponent);
+        }else{
+            return player.getVideoComponent();
+        }
     }
 
     @Nullable
     @Override
     public TextComponent getTextComponent() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (TextComponent) convertToMainThreadTask(this::getTextComponent);
+        }else{
+            return player.getTextComponent();
+        }
     }
 
     @Nullable
     @Override
     public DeviceComponent getDeviceComponent() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (DeviceComponent) convertToMainThreadTask(this::getDeviceComponent);
+        }else{
+            return player.getDeviceComponent();
+        }
     }
 
     @Override
     public void addAudioOffloadListener(AudioOffloadListener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addAudioOffloadListener(listener));
+            return;
+        }
+        player.addAudioOffloadListener(listener);
     }
 
     @Override
     public void removeAudioOffloadListener(AudioOffloadListener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> removeAudioOffloadListener(listener));
+            return;
+        }
+        player.removeAudioOffloadListener(listener);
     }
 
     @Override
     public AnalyticsCollector getAnalyticsCollector() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (AnalyticsCollector) convertToMainThreadTask(this::getAnalyticsCollector);
+        }else{
+            return player.getAnalyticsCollector();
+        }
     }
 
     @Override
     public void addAnalyticsListener(AnalyticsListener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> addAnalyticsListener(listener));
+            return;
+        }
+        player.addAnalyticsListener(listener);
     }
 
     @Override
     public void removeAnalyticsListener(AnalyticsListener listener) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> removeAnalyticsListener(listener));
+            return;
+        }
+        player.removeAnalyticsListener(listener);
     }
 
     @Override
     public int getRendererCount() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getRendererCount);
+        }else{
+            return player.getRendererCount();
+        }
     }
 
     @Override
     public int getRendererType(int index) {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(() -> getRendererType(index));
+        }else{
+            return player.getRendererType(index);
+        }
     }
 
     @Override
     public Renderer getRenderer(int index) {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Renderer) convertToMainThreadTask(() -> getRenderer(index));
+        }else{
+            return player.getRenderer(index);
+        }
     }
 
     @Nullable
     @Override
     public TrackSelector getTrackSelector() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (TrackSelector) convertToMainThreadTask(this::getTrackSelector);
+        }else{
+            return player.getTrackSelector();
+        }
     }
 
     @Override
     public TrackGroupArray getCurrentTrackGroups() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (TrackGroupArray) convertToMainThreadTask(this::getCurrentTrackGroups);
+        }else{
+            return player.getCurrentTrackGroups();
+        }
     }
 
     @Override
     public TrackSelectionArray getCurrentTrackSelections() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (TrackSelectionArray) convertToMainThreadTask(this::getCurrentTrackSelections);
+        }else{
+            return player.getCurrentTrackSelections();
+        }
     }
 
     @Override
     public Looper getPlaybackLooper() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Looper) convertToMainThreadTask(this::getPlaybackLooper);
+        }else{
+            return player.getPlaybackLooper();
+        }
     }
 
     @Override
     public Clock getClock() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Clock) convertToMainThreadTask(this::getClock);
+        }else{
+            return player.getClock();
+        }
     }
 
     @Override
     public void prepare(MediaSource mediaSource) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> prepare(mediaSource));
+            return;
+        }
+        player.prepare(mediaSource);
     }
 
     @Override
     public void prepare(MediaSource mediaSource, boolean resetPosition, boolean resetState) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> prepare(mediaSource, resetPosition, resetState));
+            return;
+        }
+        player.prepare(mediaSource, resetPosition, resetState);
     }
 
     @Override
     public void setMediaSources(List<MediaSource> mediaSources) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setMediaSources(mediaSources));
+            return;
+        }
+        player.setMediaSources(mediaSources);
     }
 
     @Override
