@@ -1627,142 +1627,254 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     @Override
     public void setVolume(float volume) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setVolume(volume));
+            return;
+        }
+        player.setVolume(volume);
     }
 
     @Override
     public float getVolume() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (float) convertToMainThreadTask(this::getVolume);
+        }else{
+            return player.getVolume();
+        }
     }
 
     @Override
     public void clearVideoSurface() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(this::clearVideoSurface);
+            return;
+        }
+        player.clearVideoSurface();
     }
 
     @Override
     public void clearVideoSurface(@Nullable Surface surface) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> clearVideoSurface(surface));
+            return;
+        }
+        player.clearVideoSurface(surface);
     }
 
     @Override
     public void setVideoSurface(@Nullable Surface surface) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setVideoSurface(surface));
+            return;
+        }
+        player.setVideoSurface(surface);
     }
 
     @Override
     public void setVideoSurfaceHolder(@Nullable SurfaceHolder surfaceHolder) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setVideoSurfaceHolder(surfaceHolder));
+            return;
+        }
+        player.setVideoSurfaceHolder(surfaceHolder);
     }
 
     @Override
     public void clearVideoSurfaceHolder(@Nullable SurfaceHolder surfaceHolder) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> clearVideoSurfaceHolder(surfaceHolder));
+            return;
+        }
+        player.clearVideoSurfaceHolder(surfaceHolder);
     }
 
     @Override
     public void setVideoSurfaceView(@Nullable SurfaceView surfaceView) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setVideoSurfaceView(surfaceView));
+            return;
+        }
+        player.setVideoSurfaceView(surfaceView);
     }
 
     @Override
     public void clearVideoSurfaceView(@Nullable SurfaceView surfaceView) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> clearVideoSurfaceView(surfaceView));
+            return;
+        }
+        player.clearVideoSurfaceView(surfaceView);
     }
 
     @Override
     public void setVideoTextureView(@Nullable TextureView textureView) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setVideoTextureView(textureView));
+            return;
+        }
+        player.setVideoTextureView(textureView);
     }
 
     @Override
     public void clearVideoTextureView(@Nullable TextureView textureView) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> clearVideoTextureView(textureView));
+            return;
+        }
+        player.clearVideoTextureView(textureView);
     }
 
     @Override
     public VideoSize getVideoSize() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (VideoSize) convertToMainThreadTask(this::getVideoSize);
+        }else{
+            return player.getVideoSize();
+        }
     }
 
     @Override
     public Size getSurfaceSize() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (Size) convertToMainThreadTask(this::getSurfaceSize);
+        }else{
+            return player.getSurfaceSize();
+        }
     }
 
     @Override
     public CueGroup getCurrentCues() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (CueGroup) convertToMainThreadTask(this::getCurrentCues);
+        }else{
+            return player.getCurrentCues();
+        }
     }
 
     @Override
     public DeviceInfo getDeviceInfo() {
-        return null;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (DeviceInfo) convertToMainThreadTask(this::getDeviceInfo);
+        }else{
+            return player.getDeviceInfo();
+        }
     }
 
     @Override
     public int getDeviceVolume() {
-        return 0;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getDeviceVolume);
+        }else{
+            return player.getDeviceVolume();
+        }
     }
 
     @Override
     public boolean isDeviceMuted() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isDeviceMuted);
+        }else{
+            return player.isDeviceMuted();
+        }
     }
 
     @Override
     public void setDeviceVolume(int volume) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setDeviceVolume(volume));
+            return;
+        }
+        player.setDeviceVolume(volume);
     }
 
     @Override
     public void setDeviceVolume(int volume, int flags) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setDeviceVolume(volume,flags));
+            return;
+        }
+        player.setDeviceVolume(volume,flags);
     }
 
     @Override
     public void increaseDeviceVolume() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> increaseDeviceVolume());
+            return;
+        }
+        player.increaseDeviceVolume();
     }
 
     @Override
     public void increaseDeviceVolume(int flags) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> increaseDeviceVolume(flags));
+            return;
+        }
+        player.increaseDeviceVolume(flags);
     }
 
     @Override
     public void decreaseDeviceVolume() {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> decreaseDeviceVolume());
+            return;
+        }
+        player.decreaseDeviceVolume();
     }
 
     @Override
     public void decreaseDeviceVolume(int flags) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> decreaseDeviceVolume(flags));
+            return;
+        }
+        player.decreaseDeviceVolume(flags);
     }
 
     @Override
     public void setDeviceMuted(boolean muted) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setDeviceMuted(muted));
+            return;
+        }
+        player.setDeviceMuted(muted);
     }
 
     @Override
     public void setDeviceMuted(boolean muted, int flags) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setDeviceMuted(muted,flags));
+            return;
+        }
+        player.setDeviceMuted(muted,flags);
     }
 
     @Override
     public void setAudioAttributes(AudioAttributes audioAttributes, boolean handleAudioFocus) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setAudioAttributes(audioAttributes,handleAudioFocus));
+            return;
+        }
+        player.setAudioAttributes(audioAttributes,handleAudioFocus);
     }
 
     @Override
     public boolean isReleased() {
-        return false;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::isReleased);
+        }else{
+            return player.isReleased();
+        }
     }
 
     @Override
     public void setImageOutput(@Nullable ImageOutput imageOutput) {
-
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setImageOutput(imageOutput));
+            return;
+        }
+        player.setImageOutput(imageOutput);
     }
 
     @Nullable
