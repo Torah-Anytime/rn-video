@@ -98,32 +98,6 @@ public class CentralizedPlaybackManager {
         initializePlayer();
     }
 
-    /**
-     * React Native component is becoming inactive
-     */
-    public synchronized void deactivateReactNative() {
-        Log.d(TAG, "React Native deactivating");
-        isReactNativeActive = false;
-
-        // Check if we should switch to standalone mode
-        if (hasExternalServices()) {
-            isStandaloneMode = true;
-            notifyModeChanged();
-        }
-    }
-
-    /**
-     * Check if external services are connected
-     */
-    private boolean hasExternalServices() {
-        try {
-            ExternalMediaServiceRegistry registry = ExternalMediaServiceRegistry.getInstance();
-            return registry.hasConnectedServices();
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
     private void initializePlayer() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(this::initializePlayer);

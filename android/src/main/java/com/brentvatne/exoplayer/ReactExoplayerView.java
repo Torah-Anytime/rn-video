@@ -402,44 +402,10 @@ public class ReactExoplayerView extends FrameLayout implements
 
             centralizedManager.addListener(centralizedListener);
 
-            // Check if we should use centralized mode
-            ExternalMediaServiceRegistry registry = ExternalMediaServiceRegistry.getInstance();
-            if (registry.hasConnectedServices()) {
-                enableCentralizedMode();
-            }
-
             Log.d(TAG, "Centralized manager integration initialized");
 
         } catch (Exception e) {
             Log.e(TAG, "Failed to initialize centralized manager", e);
-        }
-    }
-
-    /**
-     * Enable centralized mode
-     */
-    private void enableCentralizedMode() {
-        if (isUsingCentralizedManager) return;
-
-        Log.d(TAG, "Enabling centralized mode");
-
-        // Release local player if it exists
-        if (player != null) {
-            player.removeListener(this);
-            // Don't release the player, it might be used by centralized manager
-        }
-
-        // Use centralized player
-        player = centralizedManager.getPlayer();
-        if (player != null) {
-            exoPlayerView.setPlayer(player);
-            player.addListener(this);
-
-            // Note: trackSelector will be null when using centralized player
-            // This is expected and handled by the safe access methods above
-
-            isUsingCentralizedManager = true;
-            Log.d(TAG, "Centralized mode enabled");
         }
     }
 
