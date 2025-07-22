@@ -13,6 +13,7 @@ import android.app.ActivityManager;
 import android.app.PictureInPictureParams;
 import android.app.RemoteAction;
 import android.app.AlertDialog;
+import android.content.pm.ActivityInfo;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -27,13 +28,15 @@ import android.os.Message;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.view.accessibility.CaptioningManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
@@ -180,7 +183,6 @@ public class ReactExoplayerView extends FrameLayout implements
     private Player.Listener eventListener;
 
     private ExoPlayerView exoPlayerView;
-    private FullScreenPlayerView fullScreenPlayerView;
     private ImaAdsLoader adsLoader;
 
     private DataSource.Factory mediaDataSourceFactory;
@@ -2440,11 +2442,6 @@ public class ReactExoplayerView extends FrameLayout implements
     protected void setIsInPictureInPicture(boolean isInPictureInPicture) {
         eventEmitter.onPictureInPictureStatusChanged.invoke(isInPictureInPicture);
 
-        if (fullScreenPlayerView != null && fullScreenPlayerView.isShowing()) {
-            if (isInPictureInPicture) fullScreenPlayerView.hideWithoutPlayer();
-            return;
-        }
-
         Activity currentActivity = themedReactContext.getCurrentActivity();
         if (currentActivity == null) return;
 
@@ -2614,43 +2611,149 @@ public class ReactExoplayerView extends FrameLayout implements
         this.disableDisconnectError = disableDisconnectError;
     }
 
-    public void setFullscreen(boolean fullscreen) {
-        if (fullscreen == isFullscreen) {
-            return; // Avoid generating events when nothing is changing
-        }
-        isFullscreen = fullscreen;
-
-        Activity activity = themedReactContext.getCurrentActivity();
-        if (activity == null) {
-            return;
-        }
-
-        if (isFullscreen) {
-            fullScreenPlayerView = new FullScreenPlayerView(getContext(), exoPlayerView, this, null, new OnBackPressedCallback(true) {
-                @Override
-                public void handleOnBackPressed() {
-                    setFullscreen(false);
-                }
-            }, controlsConfig);
-            eventEmitter.onVideoFullscreenPlayerWillPresent.invoke();
-            if (fullScreenPlayerView != null) {
-                fullScreenPlayerView.show();
-            }
-            UiThreadUtil.runOnUiThread(() -> {
-                eventEmitter.onVideoFullscreenPlayerDidPresent.invoke();
-            });
-        } else {
-            eventEmitter.onVideoFullscreenPlayerWillDismiss.invoke();
-            if (fullScreenPlayerView != null) {
-                fullScreenPlayerView.dismiss();
-                reLayoutControls();
-                setControls(controls);
-            }
-            UiThreadUtil.runOnUiThread(() -> {
-                eventEmitter.onVideoFullscreenPlayerDidDismiss.invoke();
-            });
-        }
+   public void setFullscreen(boolean fullscreen) {
+    if (fullscreen == isFullscreen) {
+        return; // Avoid generating events when nothing is changing
     }
+    isFullscreen = fullscreen;
+
+    Activity activity = themedReactContext.getCurrentActivity();
+    if (activity == null) {
+        return;
+    }
+
+    if (isFullscreen) {
+        enterSimpleFullscreen(activity);
+    } else {
+        exitSimpleFullscreen(activity);
+    }
+}
+
+private void enterSimpleFullscreen(Activity activity) {
+    eventEmitter.onVideoFullscreenPlayerWillPresent.invoke();
+    
+    // Store current player state
+    boolean wasPlaying = player != null && player.getPlayWhenReady() && !player.isPlayingAd();
+    long currentPosition = player != null ? player.getCurrentPosition() : 0;
+    
+    // Force landscape orientation
+    activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    
+    // Hide system bars using modern approach
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        activity.getWindow().setDecorFitsSystemWindows(false);
+        WindowInsetsController controller = activity.getWindow().getInsetsController();
+        if (controller != null) {
+            controller.hide(WindowInsets.Type.systemBars());
+            controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        }
+    } else {
+        // Fallback for older Android versions
+        View decorView = activity.getWindow().getDecorView();
+        int uiOptions = View.SYSTEM_UI_FLAG_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
+        decorView.setSystemUiVisibility(uiOptions);
+    }
+    
+    // Keep screen on during fullscreen
+    activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    
+    // Adjust ExoPlayerView for fullscreen
+    if (exoPlayerView != null) {
+        // Ensure the video fills the screen properly
+        exoPlayerView.setResizeMode(ResizeMode.RESIZE_MODE_FIT);
+        
+        // Force layout update
+        exoPlayerView.requestLayout();
+        this.requestLayout();
+        
+        // Show controls immediately in fullscreen
+        exoPlayerView.showController();
+        
+        // Restore playback state after layout transition
+        mainHandler.postDelayed(() -> restorePlaybackState(wasPlaying, currentPosition), 200);
+    }
+    
+    UiThreadUtil.runOnUiThread(() -> {
+        eventEmitter.onVideoFullscreenPlayerDidPresent.invoke();
+    });
+}
+
+private void exitSimpleFullscreen(Activity activity) {
+    eventEmitter.onVideoFullscreenPlayerWillDismiss.invoke();
+    
+    // Store current state before exiting
+    boolean wasPlaying = player != null && player.getPlayWhenReady() && !player.isPlayingAd();
+    long currentPosition = player != null ? player.getCurrentPosition() : 0;
+    
+    // Restore orientation to unspecified (let system decide)
+    activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    
+    // Show system bars
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        activity.getWindow().setDecorFitsSystemWindows(true);
+        WindowInsetsController controller = activity.getWindow().getInsetsController();
+        if (controller != null) {
+            controller.show(WindowInsets.Type.systemBars());
+        }
+    } else {
+        // Fallback for older Android versions
+        View decorView = activity.getWindow().getDecorView();
+        decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+    }
+    
+    // Remove keep screen on flag (let the normal video playback setting handle this)
+    if (!preventsDisplaySleepDuringVideoPlayback) {
+        activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+    
+    // Restore ExoPlayerView to normal state
+    if (exoPlayerView != null) {
+        // Force layout update - React Native will restore the correct size
+        exoPlayerView.requestLayout();
+        this.requestLayout();
+        
+        // Restore playback state
+        mainHandler.postDelayed(() -> restorePlaybackState(wasPlaying, currentPosition), 200);
+    }
+    
+    UiThreadUtil.runOnUiThread(() -> {
+        eventEmitter.onVideoFullscreenPlayerDidDismiss.invoke();
+    });
+}
+
+private void restorePlaybackState(boolean wasPlaying, long targetPosition) {
+    if (player == null) return;
+    
+    try {
+        // Restore position if significantly different (more than 1 second drift)
+        long currentPos = player.getCurrentPosition();
+        if (Math.abs(currentPos - targetPosition) > 1000) {
+            player.seekTo(targetPosition);
+        }
+        
+        // Restore playing state
+        if (wasPlaying && (!player.getPlayWhenReady() || !player.isPlaying())) {
+            setPlayWhenReady(true);
+        }
+        
+        // Ensure controls are visible if they should be
+        if (controls && exoPlayerView != null && !exoPlayerView.isControllerVisible()) {
+            exoPlayerView.showController();
+        }
+        
+        DebugLog.d(TAG, "Playback state restored - Playing: " + wasPlaying + 
+                  ", Position: " + targetPosition + "ms");
+        
+    } catch (Exception e) {
+        DebugLog.e(TAG, "Error restoring playback state: " + e.getMessage());
+        e.printStackTrace();
+    }
+}
 
     @Override
     public void onDrmKeysLoaded(int windowIndex, MediaSource.MediaPeriodId mediaPeriodId) {

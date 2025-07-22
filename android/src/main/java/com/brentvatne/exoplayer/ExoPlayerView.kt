@@ -85,27 +85,27 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
     fun getPlayerView(): PlayerView = playerView
 
     fun setResizeMode(@ResizeMode.Mode resizeMode: Int) {
-        val targetResizeMode = when (resizeMode) {
-            ResizeMode.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-            ResizeMode.RESIZE_MODE_CENTER_CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            ResizeMode.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-            ResizeMode.RESIZE_MODE_FIXED_WIDTH -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
-            ResizeMode.RESIZE_MODE_FIXED_HEIGHT -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
-            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-        }
-
-        // Apply the resize mode to PlayerView immediately
-        playerView.resizeMode = targetResizeMode
-
-        // Store it for reapplication if needed
-        pendingResizeMode = targetResizeMode
-
-        // Force PlayerView to recalculate its layout
-        playerView.requestLayout()
-
-        // Also request layout on the parent to ensure proper sizing
-        requestLayout()
+    val targetResizeMode = when (resizeMode) {
+        ResizeMode.RESIZE_MODE_FILL -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+        ResizeMode.RESIZE_MODE_CENTER_CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+        ResizeMode.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        ResizeMode.RESIZE_MODE_FIXED_WIDTH -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+        ResizeMode.RESIZE_MODE_FIXED_HEIGHT -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
+        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
+
+    // Store for future use
+    pendingResizeMode = targetResizeMode
+
+    // Apply immediately
+    playerView.resizeMode = targetResizeMode
+
+    // Force layout updates
+    playerView.requestLayout()
+    requestLayout()
+
+    DebugLog.d(TAG, "Resize mode set to: $targetResizeMode")
+}
 
     fun setSubtitleStyle(style: SubtitleStyle) {
         playerView.subtitleView?.let { subtitleView ->
@@ -201,6 +201,60 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
         playerView.setControllerVisibilityListener(listener)
     }
 
+    /**
+ * Called when entering/exiting fullscreen to ensure proper video scaling
+ */
+fun handleFullscreenTransition(isEnteringFullscreen: Boolean) {
+    if (isEnteringFullscreen) {
+        // Entering fullscreen - ensure video fills screen properly
+        pendingResizeMode?.let { resizeMode ->
+            playerView.resizeMode = resizeMode
+        }
+        
+        // Show controls immediately in fullscreen
+        if (playerView.useController) {
+            playerView.showController()
+        }
+        
+        // Ensure proper layout
+        playerView.requestLayout()
+        requestLayout()
+        
+        DebugLog.d(TAG, "Entering fullscreen - resize mode applied")
+    } else {
+        // Exiting fullscreen - let React Native restore original layout
+        playerView.requestLayout()
+        requestLayout()
+        
+        // Restore controls if they should be visible
+        if (playerView.useController) {
+            playerView.showController()
+        }
+        
+        DebugLog.d(TAG, "Exiting fullscreen - layout restored")
+    }
+}
+
+/**
+ * Force the player to continue playing after layout changes
+ */
+fun ensurePlaybackContinues() {
+    val player = playerView.player
+    if (player != null && player.playWhenReady && !player.isPlaying) {
+        // Sometimes layout changes can pause playback - force it to continue
+        post {
+            if (player.playbackState == Player.STATE_READY) {
+                try {
+                    // This can help restart playback after view transitions
+                    player.play()
+                } catch (e: Exception) {
+                    DebugLog.w(TAG, "Could not force playback continuation: ${e.message}")
+                }
+            }
+        }
+    }
+}
+
     override fun addOnLayoutChangeListener(listener: View.OnLayoutChangeListener) {
         playerView.addOnLayoutChangeListener(listener)
     }
@@ -223,34 +277,51 @@ class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: Attribute
     }
 
     private val playerListener = object : Player.Listener {
-        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-            playerView.post {
-                playerView.requestLayout()
-                // Reapply resize mode to ensure it's properly set after timeline changes
-                pendingResizeMode?.let { resizeMode ->
-                    playerView.resizeMode = resizeMode
-                }
+    override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+        playerView.post {
+            playerView.requestLayout()
+            // Reapply resize mode after timeline changes
+            pendingResizeMode?.let { resizeMode ->
+                playerView.resizeMode = resizeMode
             }
+        }
+        updateLiveUi()
+    }
+
+    override fun onEvents(player: Player, events: Player.Events) {
+        if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) ||
+            events.contains(Player.EVENT_IS_PLAYING_CHANGED)
+        ) {
             updateLiveUi()
         }
 
-        override fun onEvents(player: Player, events: Player.Events) {
-            if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) ||
-                events.contains(Player.EVENT_IS_PLAYING_CHANGED)
-            ) {
-                updateLiveUi()
+        // Handle video size changes
+        if (events.contains(Player.EVENT_VIDEO_SIZE_CHANGED)) {
+            pendingResizeMode?.let { resizeMode ->
+                playerView.resizeMode = resizeMode
             }
-
-            // Handle video size changes which affect aspect ratio
-            if (events.contains(Player.EVENT_VIDEO_SIZE_CHANGED)) {
-                pendingResizeMode?.let { resizeMode ->
-                    playerView.resizeMode = resizeMode
+            playerView.requestLayout()
+            requestLayout()
+        }
+        
+        // Handle playback state changes
+        if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) || 
+            events.contains(Player.EVENT_PLAY_WHEN_READY_CHANGED)) {
+            
+            // Ensure controls are visible during important state changes
+            if (playerView.useController && player.playWhenReady) {
+                post {
+                    playerView.showController()
                 }
-                playerView.requestLayout()
-                requestLayout()
             }
         }
+        
+        // Handle player errors gracefully
+        if (events.contains(Player.EVENT_PLAYER_ERROR)) {
+            DebugLog.e(TAG, "Player error during fullscreen: ${player.playerError?.message}")
+        }
     }
+}
 
     companion object {
         private const val TAG = "ExoPlayerView"
