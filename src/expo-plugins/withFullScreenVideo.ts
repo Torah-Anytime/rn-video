@@ -4,10 +4,6 @@ import {
     withAndroidStyles,
     type ConfigPlugin,
   } from '@expo/config-plugins';
-  
-interface Config {
-    modResults: any;
-}
 
 interface Activity {
     $: {
@@ -17,33 +13,16 @@ interface Activity {
     };
 }
 
-interface StyleItem {
-    _: string;
-    $: { name: string };
-}
 
-interface Style {
-    $: { name: string; parent: string };
-    item: StyleItem[];
-}
-
-interface AndroidStylesConfig {
-    modResults: {
-        resources: {
-            style: Style[];
-        };
-    };
-}
-
-export const withFullScreenVideoConfig: ConfigPlugin = (config: any) => {
+export const withFullScreenVideoConfig: ConfigPlugin = (config) => {
     // Modify AndroidManifest.xml
-    config = withAndroidManifest(config, (_config: Config) => {
-        const manifest: any = _config.modResults;
+    config = withAndroidManifest(config, (config) => {
+        const manifest = config.modResults;
 
         const app: any = AndroidConfig.Manifest.getMainApplication(manifest);
         if (!app) {
             console.warn('Could not find <application> in AndroidManifest.xml');
-            return _config;
+            return config;
         }
 
         // Define the new activity
@@ -68,16 +47,16 @@ export const withFullScreenVideoConfig: ConfigPlugin = (config: any) => {
             app.activity.push(fullScreenActivity);
         }
 
-        return _config;
+        return config;
     });
 
     // Modify styles.xml
-    config = withAndroidStyles(config, (config: AndroidStylesConfig) => {
-        const styles: Style[] = config.modResults.resources.style || [];
+    config = withAndroidStyles(config, (config) => {
+        const styles = config.modResults.resources.style || [];
 
         // Check if FullScreenTheme already exists
-        if (!styles.some((s: Style) => s.$.name === 'FullScreenTheme')) {
-            const fullScreenTheme: Style = {
+        if (!styles.some((s: any) => s.$.name === 'FullScreenTheme')) {
+            const fullScreenTheme = {
                 $: { name: 'FullScreenTheme', parent: 'Theme.AppCompat.NoActionBar' },
                 item: [
                     { _: 'true', $: { name: 'android:windowNoTitle' } },
