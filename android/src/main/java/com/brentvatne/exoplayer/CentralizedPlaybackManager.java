@@ -1,16 +1,23 @@
 package com.brentvatne.exoplayer;
 
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.media.AudioDeviceInfo;
+import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.IInterface;
 import android.os.Looper;
+import android.os.Parcel;
+import android.os.RemoteException;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.AuxEffectInfo;
@@ -48,7 +55,11 @@ import androidx.media3.exoplayer.video.spherical.CameraMotionListener;
 
 import android.app.Service;
 
+import java.io.FileDescriptor;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -68,20 +79,16 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     private final long COMMUNICATION_WAIT = 30000;
 
-    private static volatile CentralizedPlaybackManager instance;
-
     private final Handler mainHandler;
     private ExoPlayer player;
+    private final IBinder binder = new LocalBinder();
+
+    private static volatile CentralizedPlaybackManager instance = null;
+
+    private static final Set<Object> registry = new ConcurrentSkipListSet<>();
 
 
     //===== Initialization =====
-
-    public static synchronized CentralizedPlaybackManager getInstance(){
-        if(instance == null){
-            instance = new CentralizedPlaybackManager();
-        }
-        return instance;
-    }
 
     private CentralizedPlaybackManager(){
         this.mainHandler = new Handler(Looper.getMainLooper());
@@ -96,6 +103,58 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
 
         this.player = new ExoPlayer.Builder(this.getApplicationContext()).build();
+    }
+
+    //===== Binding and Lifecycle =====
+    public class LocalBinder extends Binder{
+        public CentralizedPlaybackManager getInstance(){
+            synchronized (CentralizedPlaybackManager.class) {
+                if (instance == null) {
+                    instance = CentralizedPlaybackManager.this;
+                }
+                return instance;
+            }
+        }
+    }
+
+    public static class LocalBinderConnection implements ServiceConnection{
+        private CentralizedPlaybackManager localInstance = null;
+
+        @Override
+        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+            Log.d(TAG,"Connection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
+            LocalBinder localBinder = (LocalBinder) iBinder;
+            localInstance = localBinder.getInstance();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName componentName) {
+            Log.d(TAG,"Disconnection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
+            localInstance = null;
+        }
+
+        public CentralizedPlaybackManager getInstance(){
+            return localInstance;
+        }
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        Log.d(TAG,"Binding client to CentralizedPlaybackManager");
+        return binder;
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        Log.d(TAG, "Unbinding client to CentralizedPlaybackManager");
+        return false;
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        Log.d(TAG, "CentralizedPlaybackManager destroyed");
     }
 
     //===== Util =====
@@ -1875,11 +1934,5 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             return;
         }
         player.setImageOutput(imageOutput);
-    }
-
-    @Nullable
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
     }
 }
