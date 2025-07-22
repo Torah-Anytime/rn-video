@@ -17,6 +17,7 @@ import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import com.brentvatne.common.api.ResizeMode
 import com.brentvatne.common.api.SubtitleStyle
+import com.brentvatne.common.toolbox.DebugLog
 
 @UnstableApi
 class ExoPlayerView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) :
