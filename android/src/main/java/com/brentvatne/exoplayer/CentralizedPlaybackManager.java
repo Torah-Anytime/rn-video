@@ -91,6 +91,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     //===== Initialization =====
 
     private CentralizedPlaybackManager(){
+        Log.d(TAG,"CPM Instance Created");
         this.mainHandler = new Handler(Looper.getMainLooper());
         setupPlayer();
     }
@@ -119,22 +120,49 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     public static class LocalBinderConnection implements ServiceConnection{
         private CentralizedPlaybackManager localInstance = null;
+        private CountDownLatch liLatch = new CountDownLatch(1);
 
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
             Log.d(TAG,"Connection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
             LocalBinder localBinder = (LocalBinder) iBinder;
             localInstance = localBinder.getInstance();
+            liLatch.countDown();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName componentName) {
             Log.d(TAG,"Disconnection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
+            liLatch = new CountDownLatch(1);
             localInstance = null;
         }
 
         public CentralizedPlaybackManager getInstance(){
             return localInstance;
+        }
+
+        public CentralizedPlaybackManager waitForInstance(long timeout, TimeUnit unit){
+            try {
+                if(liLatch.await(timeout, unit)){
+                    return localInstance;
+                }else{
+                    Log.w(TAG,"Timed out while waiting for instance, returning null");
+                    return null;
+                }
+            } catch (InterruptedException e) {
+                Log.e(TAG,"Interrupted while waiting for instance, returning null");
+                return null;
+            }
+        }
+
+        public CentralizedPlaybackManager waitForInstance(){
+            try {
+                liLatch.await();
+                return localInstance;
+            } catch (InterruptedException e) {
+                Log.e(TAG,"Interrupted while waiting for instance, returning null");
+                return null;
+            }
         }
     }
 
@@ -149,6 +177,13 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean onUnbind(Intent intent) {
         Log.d(TAG, "Unbinding client to CentralizedPlaybackManager");
         return false;
+    }
+
+    // This is the CRUCIAL method you need to implement
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Log.d(TAG, "CentralizedPlaybackManager created");
     }
 
     @Override

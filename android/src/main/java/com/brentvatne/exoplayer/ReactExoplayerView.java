@@ -51,7 +51,6 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.text.CueGroup;
-import androidx.media3.common.util.Log;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSource;
 import androidx.media3.datasource.DataSpec;
@@ -140,7 +139,6 @@ import java.net.CookieHandler;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -193,9 +191,6 @@ public class ReactExoplayerView extends FrameLayout implements
     private boolean playerNeedsSource;
     private ServiceConnection playbackServiceConnection;
     private PlaybackServiceBinder playbackServiceBinder;
-    private CentralizedPlaybackManager centralizedManager;
-    private boolean isUsingCentralizedManager = false;
-    private CentralizedPlaybackManager.PlaybackStateListener centralizedListener;
 
     // logger to be enable by props
     private EventLogger debugEventLogger = null;
@@ -228,9 +223,9 @@ public class ReactExoplayerView extends FrameLayout implements
     private ArrayList<Integer> rootViewChildrenOriginalVisibility = new ArrayList<>();
 
     /*
-    * When user is seeking first called is on onPositionDiscontinuity -> DISCONTINUITY_REASON_SEEK
-    * Then we set if to false when playback is back in onIsPlayingChanged -> true
-    */
+     * When user is seeking first called is on onPositionDiscontinuity -> DISCONTINUITY_REASON_SEEK
+     * Then we set if to false when playback is back in onIsPlayingChanged -> true
+     */
     private boolean isSeeking = false;
     private long seekPosition = -1;
 
@@ -345,75 +340,6 @@ public class ReactExoplayerView extends FrameLayout implements
         audioBecomingNoisyReceiver = new AudioBecomingNoisyReceiver(themedReactContext);
         audioFocusChangeListener = new OnAudioFocusChangedListener(this, themedReactContext);
         pictureInPictureReceiver = new PictureInPictureReceiver(this, themedReactContext);
-
-        // Initialize centralized manager integration
-        initializeCentralizedManager();
-    }
-
-    /**
-     * Initialize centralized manager integration
-     */
-    private void initializeCentralizedManager() {
-        try {
-            centralizedManager = CentralizedPlaybackManager.getInstance(themedReactContext);
-
-            // Create listener for external changes
-            centralizedListener = new CentralizedPlaybackManager.PlaybackStateListener() {
-                @Override
-                public void onPlaybackStateChanged(boolean isPlaying, long position, float speed) {
-                    mainHandler.post(() -> {
-                        if (isCommandFromReactNative()) {
-                            isPaused = !isPlaying;
-                            rate = speed;
-                            eventEmitter.onPlaybackRateChange.invoke(isPlaying ? speed : 0.0f);
-                            eventEmitter.onVideoPlaybackStateChanged.invoke(isPlaying, false);
-                        }
-                    });
-                }
-
-                @Override
-                public void onMediaItemChanged(MediaItem mediaItem) {
-                    mainHandler.post(() -> {
-                        if (isCommandFromReactNative() && mediaItem != null) {
-                            videoLoaded();
-                        }
-                    });
-                }
-
-                @Override
-                public void onSeekCompleted(long position) {
-                    mainHandler.post(() -> {
-                        if (isCommandFromReactNative()) {
-                            eventEmitter.onVideoSeek.invoke(position, position);
-                        }
-                    });
-                }
-
-                @Override
-                public void onVolumeChanged(float volume) {
-                    mainHandler.post(() -> {
-                        if (isCommandFromReactNative()) {
-                            audioVolume = volume;
-                            eventEmitter.onVolumeChange.invoke(volume);
-                        }
-                    });
-                }
-            };
-
-            centralizedManager.addListener(centralizedListener);
-
-            Log.d(TAG, "Centralized manager integration initialized");
-
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize centralized manager", e);
-        }
-    }
-
-    /**
-     * Check if current command originated from React Native
-     */
-    private boolean isCommandFromReactNative() {
-        return Looper.myLooper() != Looper.getMainLooper() || Thread.currentThread().getName().contains("ExoPlayer");
     }
     private boolean isPlayingAd() {
         return player != null && player.isPlayingAd();
@@ -439,16 +365,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     @Override
     protected void onDetachedFromWindow() {
-        if (centralizedManager != null && centralizedListener != null) {
-            centralizedManager.removeListener(centralizedListener);
-            centralizedListener = null;
-        }
-
-        // Don't release player if using centralized mode
-        if (!isUsingCentralizedManager) {
-            cleanupPlaybackService();
-        }
-
+        cleanupPlaybackService();
         viewInstances.remove(getId());
         super.onDetachedFromWindow();
     }
@@ -1013,7 +930,7 @@ public class ReactExoplayerView extends FrameLayout implements
                             : (e.reason == UnsupportedDrmException.REASON_UNSUPPORTED_SCHEME
                             ? R.string.error_drm_unsupported_scheme : R.string.error_drm_unknown);
                     eventEmitter.onVideoError.invoke(getResources().getString(errorStringId), e, "3003");
-                        }
+                }
             }
         }
         return drmSessionManager;
@@ -1315,7 +1232,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
         if (cmcdConfigurationFactory != null) {
             mediaSourceFactory = mediaSourceFactory.setCmcdConfigurationFactory(
-                    cmcdConfigurationFactory
+                    cmcdConfigurationFactory::createCmcdConfiguration
             );
         }
 
@@ -1348,12 +1265,12 @@ public class ReactExoplayerView extends FrameLayout implements
 
         for (SideLoadedTextTrack track : source.getSideLoadedTextTracks().getTracks()) {
             MediaItem.SubtitleConfiguration subtitleConfiguration = new MediaItem.SubtitleConfiguration.Builder(track.getUri())
-                .setMimeType(track.getType())
-                .setLanguage(track.getLanguage())
-                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
-                .setLabel(track.getTitle())
-                .build();
+                    .setMimeType(track.getType())
+                    .setLanguage(track.getLanguage())
+                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                    .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
+                    .setLabel(track.getTitle())
+                    .build();
             subtitleConfigurations.add(subtitleConfiguration);
         }
 
@@ -1372,25 +1289,15 @@ public class ReactExoplayerView extends FrameLayout implements
             }
 
             updateResumePosition();
-
-            // Only release if we're not using centralized manager
-            if (!isUsingCentralizedManager) {
-                player.release();
-                ReactNativeVideoManager.Companion.getInstance().onInstanceRemoved(instanceId, player);
-            } else {
-                // Just remove our listener from centralized player
-                if (centralizedListener != null) {
-                    centralizedManager.removeListener(centralizedListener);
-                    centralizedListener = null;
-                }
-            }
-
+            player.release();
             player.removeListener(this);
             PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
             if (pipListenerUnsubscribe != null) {
                 new Handler().post(pipListenerUnsubscribe);
             }
             trackSelector = null;
+
+            ReactNativeVideoManager.Companion.getInstance().onInstanceRemoved(instanceId, player);
             player = null;
         }
 
@@ -1413,49 +1320,49 @@ public class ReactExoplayerView extends FrameLayout implements
                                                ThemedReactContext themedReactContext) implements AudioManager.OnAudioFocusChangeListener {
 
         @Override
-            public void onAudioFocusChange(int focusChange) {
-                Activity activity = themedReactContext.getCurrentActivity();
-    
-                switch (focusChange) {
-                    case AudioManager.AUDIOFOCUS_LOSS:
-                        view.hasAudioFocus = false;
-                        view.eventEmitter.onAudioFocusChanged.invoke(false);
-                        // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
-                        if (activity != null) {
-                            activity.runOnUiThread(view::pausePlayback);
-                        }
-                        view.audioManager.abandonAudioFocus(this);
-                        break;
-                    case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                        view.eventEmitter.onAudioFocusChanged.invoke(false);
-                        break;
-                    case AudioManager.AUDIOFOCUS_GAIN:
-                        view.hasAudioFocus = true;
-                        view.eventEmitter.onAudioFocusChanged.invoke(true);
-                        break;
-                    default:
-                        break;
-                }
-    
-                if (view.player != null && activity != null) {
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                        // Lower the volume
-                        if (!view.muted) {
-                            activity.runOnUiThread(() ->
-                                    view.player.setVolume(view.audioVolume * 0.8f)
-                            );
-                        }
-                    } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
-                        // Raise it back to normal
-                        if (!view.muted) {
-                            activity.runOnUiThread(() ->
-                                    view.player.setVolume(view.audioVolume * 1)
-                            );
-                        }
+        public void onAudioFocusChange(int focusChange) {
+            Activity activity = themedReactContext.getCurrentActivity();
+
+            switch (focusChange) {
+                case AudioManager.AUDIOFOCUS_LOSS:
+                    view.hasAudioFocus = false;
+                    view.eventEmitter.onAudioFocusChanged.invoke(false);
+                    // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
+                    if (activity != null) {
+                        activity.runOnUiThread(view::pausePlayback);
+                    }
+                    view.audioManager.abandonAudioFocus(this);
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                    view.eventEmitter.onAudioFocusChanged.invoke(false);
+                    break;
+                case AudioManager.AUDIOFOCUS_GAIN:
+                    view.hasAudioFocus = true;
+                    view.eventEmitter.onAudioFocusChanged.invoke(true);
+                    break;
+                default:
+                    break;
+            }
+
+            if (view.player != null && activity != null) {
+                if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                    // Lower the volume
+                    if (!view.muted) {
+                        activity.runOnUiThread(() ->
+                                view.player.setVolume(view.audioVolume * 0.8f)
+                        );
+                    }
+                } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
+                    // Raise it back to normal
+                    if (!view.muted) {
+                        activity.runOnUiThread(() ->
+                                view.player.setVolume(view.audioVolume * 1)
+                        );
                     }
                 }
             }
         }
+    }
 
     private boolean requestAudioFocus() {
         if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
@@ -1672,46 +1579,22 @@ public class ReactExoplayerView extends FrameLayout implements
         return selection != null && selection.getTrackGroup() == group
                 && selection.indexOf( trackIndex ) != C.INDEX_UNSET;
     }
-    /**
-     * Safely get the track selector, whether using centralized or local player
-     */
-    private DefaultTrackSelector getSafeTrackSelector() {
-        if (isUsingCentralizedManager) {
-            // When using centralized manager, we need to get/create a track selector
-            ExoPlayer currentPlayer = centralizedManager.getPlayer();
-            if (currentPlayer != null) {
-                // Try to get track selector from the player
-                // Note: This is a limitation - centralized player might not have the same track selector
-                // We need to either share the track selector or handle this differently
-                return trackSelector; // Will be null, need to handle this case
-            }
-        }
-        return trackSelector;
-    }
 
-    /**
-     * Check if track selector is available
-     */
-    private boolean hasTrackSelector() {
-        DefaultTrackSelector selector = getSafeTrackSelector();
-        return selector != null;
-    }
     private ArrayList<Track> getAudioTrackInfo() {
         ArrayList<Track> audioTracks = new ArrayList<>();
-        DefaultTrackSelector currentTrackSelector = getSafeTrackSelector();
-        if (currentTrackSelector == null) {
-            Log.w(TAG, "Track selector not available, returning empty audio tracks");
+        if (trackSelector == null) {
+            // Likely player is unmounting so no audio tracks are available anymore
             return audioTracks;
         }
 
-        MappingTrackSelector.MappedTrackInfo info = currentTrackSelector.getCurrentMappedTrackInfo();
+        MappingTrackSelector.MappedTrackInfo info = trackSelector.getCurrentMappedTrackInfo();
         int index = getTrackRendererIndex(C.TRACK_TYPE_AUDIO);
         if (info == null || index == C.INDEX_UNSET) {
             return audioTracks;
         }
         TrackGroupArray groups = info.getTrackGroups(index);
         TrackSelectionArray selectionArray = player.getCurrentTrackSelections();
-        TrackSelection selection = selectionArray.get(C.TRACK_TYPE_AUDIO);
+        TrackSelection selection = selectionArray.get( C.TRACK_TYPE_AUDIO );
 
         for (int i = 0; i < groups.length; ++i) {
             TrackGroup group = groups.get(i);
@@ -1737,13 +1620,11 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private ArrayList<VideoTrack> getVideoTrackInfo() {
         ArrayList<VideoTrack> videoTracks = new ArrayList<>();
-        DefaultTrackSelector currentTrackSelector = getSafeTrackSelector();
-        if (currentTrackSelector == null) {
-            Log.w(TAG, "Track selector not available, returning empty video tracks");
+        if (trackSelector == null) {
+            // Likely player is unmounting so no video tracks are available anymore
             return videoTracks;
         }
-
-        MappingTrackSelector.MappedTrackInfo info = currentTrackSelector.getCurrentMappedTrackInfo();
+        MappingTrackSelector.MappedTrackInfo info = trackSelector.getCurrentMappedTrackInfo();
         int index = getTrackRendererIndex(C.TRACK_TYPE_VIDEO);
         if (info == null || index == C.INDEX_UNSET) {
             return videoTracks;
@@ -1844,19 +1725,16 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private ArrayList<Track> getTextTrackInfo() {
         ArrayList<Track> textTracks = new ArrayList<>();
-        DefaultTrackSelector currentTrackSelector = getSafeTrackSelector();
-        if (currentTrackSelector == null) {
-            Log.w(TAG, "Track selector not available, returning empty text tracks");
+        if (trackSelector == null) {
             return textTracks;
         }
-
-        MappingTrackSelector.MappedTrackInfo info = currentTrackSelector.getCurrentMappedTrackInfo();
+        MappingTrackSelector.MappedTrackInfo info = trackSelector.getCurrentMappedTrackInfo();
         int index = getTrackRendererIndex(C.TRACK_TYPE_TEXT);
         if (info == null || index == C.INDEX_UNSET) {
             return textTracks;
         }
         TrackSelectionArray selectionArray = player.getCurrentTrackSelections();
-        TrackSelection selection = selectionArray.get(C.TRACK_TYPE_VIDEO);
+        TrackSelection selection = selectionArray.get( C.TRACK_TYPE_VIDEO );
         TrackGroupArray groups = info.getTrackGroups(index);
 
         for (int i = 0; i < groups.length; ++i) {
@@ -2039,26 +1917,21 @@ public class ReactExoplayerView extends FrameLayout implements
             boolean isSourceEqual = source.isEquals(this.source);
             hasDrmFailed = false;
             this.source = source;
-            if (isUsingCentralizedManager && centralizedManager != null) {
-                // Use centralized manager to set media source
-                centralizedManager.setMediaSource(source.getUri().toString());
+            this.mediaDataSourceFactory =
+                    DataSourceUtil.getDefaultDataSourceFactory(this.themedReactContext, bandwidthMeter,
+                            source.getHeaders());
+
+            if (source.getCmcdProps() != null) {
+                CMCDConfig cmcdConfig = new CMCDConfig(source.getCmcdProps());
+                CmcdConfiguration.Factory factory = cmcdConfig.toCmcdConfigurationFactory();
+                this.setCmcdConfigurationFactory(factory);
             } else {
-                // Use existing logic for local player
-                this.mediaDataSourceFactory = DataSourceUtil.getDefaultDataSourceFactory(
-                        this.themedReactContext, bandwidthMeter, source.getHeaders());
+                this.setCmcdConfigurationFactory(null);
+            }
 
-                if (source.getCmcdProps() != null) {
-                    CMCDConfig cmcdConfig = new CMCDConfig(source.getCmcdProps());
-                    CmcdConfiguration.Factory factory = cmcdConfig.toCmcdConfigurationFactory();
-                    this.setCmcdConfigurationFactory(factory);
-                } else {
-                    this.setCmcdConfigurationFactory(null);
-                }
-
-                if (!isSourceEqual) {
-                    playerNeedsSource = true;
-                    initializePlayer();
-                }
+            if (!isSourceEqual) {
+                playerNeedsSource = true;
+                initializePlayer();
             }
         } else {
             clearSrc();
@@ -2112,37 +1985,21 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     public void disableTrack(int rendererIndex) {
-        DefaultTrackSelector currentTrackSelector = getSafeTrackSelector();
-        if (currentTrackSelector == null) {
-            Log.w(TAG, "Track selector not available, cannot disable track");
-            return;
-        }
-
-        DefaultTrackSelector.Parameters disableParameters = currentTrackSelector.getParameters()
+        DefaultTrackSelector.Parameters disableParameters = trackSelector.getParameters()
                 .buildUpon()
                 .setRendererDisabled(rendererIndex, true)
                 .build();
-        currentTrackSelector.setParameters(disableParameters);
+        trackSelector.setParameters(disableParameters);
     }
 
     public void setSelectedTrack(int trackType, String type, String value) {
         if (player == null) return;
-
-        // Check if we have a valid track selector
-        DefaultTrackSelector currentTrackSelector = getSafeTrackSelector();
-        if (currentTrackSelector == null) {
-            Log.w(TAG, "Track selector not available, cannot set selected track");
-            return;
-        }
-
         int rendererIndex = getTrackRendererIndex(trackType);
         if (rendererIndex == C.INDEX_UNSET) {
             return;
         }
-
-        MappingTrackSelector.MappedTrackInfo info = currentTrackSelector.getCurrentMappedTrackInfo();
+        MappingTrackSelector.MappedTrackInfo info = trackSelector.getCurrentMappedTrackInfo();
         if (info == null) {
-            Log.w(TAG, "MappedTrackInfo not available, cannot set selected track");
             return;
         }
 
@@ -2189,7 +2046,7 @@ public class ReactExoplayerView extends FrameLayout implements
         } else if ("resolution".equals(type)) {
             int height = ReactBridgeUtils.safeParseInt(value, -1);
             if (height != -1) {
-                for (int i = 0; i < groups.length; ++i) {
+                for (int i = 0; i < groups.length; ++i) { // Search for the exact height
                     TrackGroup group = groups.get(i);
                     Format closestFormat = null;
                     int closestTrackIndex = -1;
@@ -2204,8 +2061,10 @@ public class ReactExoplayerView extends FrameLayout implements
                             usingExactMatch = true;
                             break;
                         } else if (isUsingContentResolution) {
+                            // When using content resolution rather than ads, we need to try and find the closest match if there is no exact match
                             if (closestFormat != null) {
                                 if ((format.bitrate > closestFormat.bitrate || format.height > closestFormat.height) && format.height < height) {
+                                    // Higher quality match
                                     closestFormat = format;
                                     closestTrackIndex = j;
                                 }
@@ -2215,7 +2074,9 @@ public class ReactExoplayerView extends FrameLayout implements
                             }
                         }
                     }
+                    // This is a fallback if the new period contains only higher resolutions than the user has selected
                     if (closestFormat == null && isUsingContentResolution && !usingExactMatch) {
+                        // No close match found - so we pick the lowest quality
                         int minHeight = Integer.MAX_VALUE;
                         for (int j = 0; j < group.length; j++) {
                             Format format = group.getFormat(j);
@@ -2226,22 +2087,27 @@ public class ReactExoplayerView extends FrameLayout implements
                             }
                         }
                     }
+                    // Selecting the closest match found
                     if (closestFormat != null && closestTrackIndex != -1) {
+                        // We found the closest match instead of an exact one
                         groupIndex = i;
                         tracks.set(0, closestTrackIndex);
                     }
                 }
             }
-        } else if (trackType == C.TRACK_TYPE_TEXT && Util.SDK_INT > 18) {
-            CaptioningManager captioningManager = (CaptioningManager)themedReactContext.getSystemService(Context.CAPTIONING_SERVICE);
+        } else if (trackType == C.TRACK_TYPE_TEXT && Util.SDK_INT > 18) { // Text default
+            // Use system settings if possible
+            CaptioningManager captioningManager
+                    = (CaptioningManager)themedReactContext.getSystemService(Context.CAPTIONING_SERVICE);
             if (captioningManager != null && captioningManager.isEnabled()) {
                 groupIndex = getGroupIndexForDefaultLocale(groups);
             }
-        } else if (rendererIndex == C.TRACK_TYPE_AUDIO) {
+        } else if (rendererIndex == C.TRACK_TYPE_AUDIO) { // Audio default
             groupIndex = getGroupIndexForDefaultLocale(groups);
         }
 
-        if (groupIndex == C.INDEX_UNSET && trackType == C.TRACK_TYPE_VIDEO && groups.length != 0) {
+        if (groupIndex == C.INDEX_UNSET && trackType == C.TRACK_TYPE_VIDEO && groups.length != 0) { // Video auto
+            // Add all tracks as valid options for ABR to choose from
             TrackGroup group = groups.get(0);
             ArrayList<Integer> allTracks = new ArrayList<>(group.length);
             groupIndex = 0;
@@ -2249,6 +2115,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 allTracks.add(j);
             }
 
+            // Valiate list of all tracks and add only supported formats
             int supportedFormatLength = 0;
             for (int g = 0; g < allTracks.size(); g++) {
                 Format format = group.getFormat(g);
@@ -2257,9 +2124,10 @@ public class ReactExoplayerView extends FrameLayout implements
                 }
             }
             if (allTracks.size() == 1) {
+                // With only one tracks we can't remove any tracks so attempt to play it anyway
                 tracks = allTracks;
             } else {
-                tracks = new ArrayList<>(supportedFormatLength + 1);
+                tracks =  new ArrayList<>(supportedFormatLength + 1);
                 for (int k = 0; k < allTracks.size(); k++) {
                     Format format = group.getFormat(k);
                     if (isFormatSupported(format)) {
@@ -2276,7 +2144,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
         TrackSelectionOverride selectionOverride = new TrackSelectionOverride(groups.get(groupIndex), tracks);
 
-        DefaultTrackSelector.Parameters.Builder selectionParameters = currentTrackSelector.getParameters()
+        DefaultTrackSelector.Parameters.Builder selectionParameters = trackSelector.getParameters()
                 .buildUpon()
                 .setExceedAudioConstraintsIfNecessary(true)
                 .setExceedRendererCapabilitiesIfNecessary(true)
@@ -2290,7 +2158,7 @@ public class ReactExoplayerView extends FrameLayout implements
             selectionParameters.addOverride(selectionOverride);
         }
 
-        currentTrackSelector.setParameters(selectionParameters.build());
+        trackSelector.setParameters(selectionParameters.build());
     }
 
     private boolean isFormatSupported(Format format) {
@@ -2351,13 +2219,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setPausedModifier(boolean paused) {
         isPaused = paused;
-
-        if (isUsingCentralizedManager && centralizedManager != null) {
-            Map<CentralizedPlaybackManager.SyncItem, Object> state = new HashMap<>();
-            state.put(CentralizedPlaybackManager.SyncItem.PAUSED, paused);
-            centralizedManager.syncState(state, "ReactNative");
-        } else if (player != null) {
-            // Original logic for local player
+        if (player != null) {
             if (!paused) {
                 resumePlayback();
             } else {
@@ -2482,22 +2344,13 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setVolumeModifier(float volume) {
         audioVolume = volume;
-
-        if (isUsingCentralizedManager && centralizedManager != null) {
-            Map<CentralizedPlaybackManager.SyncItem, Object> state = new HashMap<>();
-            state.put(CentralizedPlaybackManager.SyncItem.VOLUME, volume);
-            centralizedManager.syncState(state, "ReactNative");
-        } else if (player != null) {
-            player.setVolume(volume);
+        if (player != null) {
+            player.setVolume(audioVolume);
         }
     }
 
     public void seekTo(long positionMs) {
-        if (isUsingCentralizedManager && centralizedManager != null) {
-            Map<CentralizedPlaybackManager.SyncItem, Object> state = new HashMap<>();
-            state.put(CentralizedPlaybackManager.SyncItem.SEEK, positionMs);
-            centralizedManager.syncState(state, "ReactNative");
-        } else if (player != null) {
+        if (player != null) {
             player.seekTo(positionMs);
         }
     }
@@ -2510,12 +2363,8 @@ public class ReactExoplayerView extends FrameLayout implements
 
         rate = newRate;
 
-        if (isUsingCentralizedManager && centralizedManager != null) {
-            Map<CentralizedPlaybackManager.SyncItem, Object> state = new HashMap<>();
-            state.put(CentralizedPlaybackManager.SyncItem.SPEED, newRate);
-            centralizedManager.syncState(state, "ReactNative");
-        } else if (player != null) {
-            PlaybackParameters params = new PlaybackParameters(newRate, 1f);
+        if (player != null) {
+            PlaybackParameters params = new PlaybackParameters(rate, 1f);
             player.setPlaybackParameters(params);
         }
     }

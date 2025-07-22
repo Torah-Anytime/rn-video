@@ -1,3 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           package="com.brentvatne.react">
+		  <application>
+    <service
+        android:name="com.brentvatne.exoplayer.CentralizedPlaybackManager"
+        android:exported="false" />
+    </application>
 </manifest>
