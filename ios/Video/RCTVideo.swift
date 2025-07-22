@@ -934,9 +934,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
         } else {
             // Don't resume if audio session is interrupted
             if _audioSessionInterrupted { return }
-            
-            RCTPlayerOperations.configureAudio(ignoreSilentSwitch: _ignoreSilentSwitch, mixWithOthers: _mixWithOthers, audioOutput: _audioOutput)
-
             if _adPlaying {
                 #if USE_GOOGLE_IMA
                     _imaAdsManager.getAdsManager()?.resume()
