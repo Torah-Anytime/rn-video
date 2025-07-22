@@ -1,8 +1,0 @@
-pluginManagement {
-
-}
-dependencyResolutionManagement {
-
-}
-rootProject.name = 'ReactNativeVideo'
-include ':app'
