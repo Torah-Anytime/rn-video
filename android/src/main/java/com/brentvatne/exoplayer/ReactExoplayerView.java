@@ -18,6 +18,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.res.Configuration;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
@@ -149,6 +150,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -169,6 +171,9 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private static final String TAG = "ReactExoplayerView";
 
+    // Static registry for activity communication
+    private static final ConcurrentHashMap<Integer, ReactExoplayerView> viewInstances = new ConcurrentHashMap<>();
+    
     private static final CookieManager DEFAULT_COOKIE_MANAGER;
     private static final int SHOW_PROGRESS = 1;
 
@@ -335,8 +340,21 @@ public class ReactExoplayerView extends FrameLayout implements
         audioBecomingNoisyReceiver = new AudioBecomingNoisyReceiver(themedReactContext);
         audioFocusChangeListener = new OnAudioFocusChangedListener(this, themedReactContext);
         pictureInPictureReceiver = new PictureInPictureReceiver(this, themedReactContext);
+        
+        // Register this view instance for activity communication
+        viewInstances.put(getId(), this);
     }
 
+    // Static method for activity communication
+    public static ReactExoplayerView getViewInstance(int id) {
+        return viewInstances.get(id);
+    }
+    
+    // Getter for player access from activity
+    public ExoPlayer getPlayer() {
+        return player;
+    }
+    
     private boolean isPlayingAd() {
         return player != null && player.isPlayingAd();
     }
@@ -2623,65 +2641,27 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     if (isFullscreen) {
-        enterSimpleFullscreen(activity);
+        eventEmitter.onVideoFullscreenPlayerWillPresent.invoke();
+        
+        Intent intent = new Intent(themedReactContext, ExoPlayerFullscreenVideoActivity.class);
+        intent.putExtra(ExoPlayerFullscreenVideoActivity.EXTRA_REACT_EXOPLAYER_VIEW_ID, getId());
+        intent.putExtra(ExoPlayerFullscreenVideoActivity.EXTRA_ORIENTATION, ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        intent.putExtra(ExoPlayerFullscreenVideoActivity.EXTRA_CONTROLS_CONFIG, controlsConfig);
+        
+        activity.startActivity(intent);
+        eventEmitter.onVideoFullscreenPlayerDidPresent.invoke();
     } else {
-        exitSimpleFullscreen(activity);
+        eventEmitter.onVideoFullscreenPlayerWillDismiss.invoke();
+        
+        Activity currentActivity = themedReactContext.getCurrentActivity();
+        if (currentActivity instanceof ExoPlayerFullscreenVideoActivity) {
+            currentActivity.finish();
+        }
+        
+        eventEmitter.onVideoFullscreenPlayerDidDismiss.invoke();
     }
 }
 
-private void enterSimpleFullscreen(Activity activity) {
-    eventEmitter.onVideoFullscreenPlayerWillPresent.invoke();
-    
-    // Store current player state
-    boolean wasPlaying = player != null && player.getPlayWhenReady() && !player.isPlayingAd();
-    long currentPosition = player != null ? player.getCurrentPosition() : 0;
-    
-    // Force landscape orientation
-    activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-    
-    // Hide system bars using modern approach
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        activity.getWindow().setDecorFitsSystemWindows(false);
-        WindowInsetsController controller = activity.getWindow().getInsetsController();
-        if (controller != null) {
-            controller.hide(WindowInsets.Type.systemBars());
-            controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-        }
-    } else {
-        // Fallback for older Android versions
-        View decorView = activity.getWindow().getDecorView();
-        int uiOptions = View.SYSTEM_UI_FLAG_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN;
-        decorView.setSystemUiVisibility(uiOptions);
-    }
-    
-    // Keep screen on during fullscreen
-    activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-    
-    // Adjust ExoPlayerView for fullscreen
-    if (exoPlayerView != null) {
-        // Ensure the video fills the screen properly
-        exoPlayerView.setResizeMode(ResizeMode.RESIZE_MODE_FIT);
-        
-        // Force layout update
-        exoPlayerView.requestLayout();
-        this.requestLayout();
-        
-        // Show controls immediately in fullscreen
-        exoPlayerView.showController();
-        
-        // Restore playback state after layout transition
-        mainHandler.postDelayed(() -> restorePlaybackState(wasPlaying, currentPosition), 200);
-    }
-    
-    UiThreadUtil.runOnUiThread(() -> {
-        eventEmitter.onVideoFullscreenPlayerDidPresent.invoke();
-    });
-}
 
 private void exitSimpleFullscreen(Activity activity) {
     eventEmitter.onVideoFullscreenPlayerWillDismiss.invoke();
