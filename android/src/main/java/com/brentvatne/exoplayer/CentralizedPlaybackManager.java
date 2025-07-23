@@ -198,7 +198,23 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         super.onCreate();
         setupPlayer();
         executeInitializationTasks();
+        //tempPlayerStateLog();
         Log.d(TAG, "CentralizedPlaybackManager created");
+    }
+
+    private void tempPlayerStateLog(){
+        Executors.newSingleThreadExecutor().execute(() -> {
+            while (true){
+                try {
+                    Thread.sleep(2000);
+                    mainHandler.post(() -> {
+                        if(player != null && player.getCurrentMediaItem() != null) Log.d(TAG,"Player mediaItem: " + player.getCurrentMediaItem().mediaId);
+                    });
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
     }
 
     @Override

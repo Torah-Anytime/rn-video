@@ -26,6 +26,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.CaptioningManager;
@@ -139,6 +140,7 @@ import java.net.CookieHandler;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -270,6 +272,10 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private CmcdConfiguration.Factory cmcdConfigurationFactory;
 
+    //CentralizedPlayerManager interface
+    private CentralizedPlaybackManager.LocalBinderConnection cpmConnection;
+    private final Object playerLock;
+
     public void setCmcdConfigurationFactory(CmcdConfiguration.Factory factory) {
         this.cmcdConfigurationFactory = factory;
     }
@@ -330,7 +336,9 @@ public class ReactExoplayerView extends FrameLayout implements
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && pictureInPictureParamsBuilder == null) {
             this.pictureInPictureParamsBuilder = new PictureInPictureParams.Builder();
         }
-        mainHandler = new Handler();
+        this.mainHandler = new Handler();
+
+        this.playerLock = new Object();
 
         createViews();
 
@@ -401,6 +409,7 @@ public class ReactExoplayerView extends FrameLayout implements
         themedReactContext.removeLifecycleEventListener(this);
         releasePlayer();
         viewHasDropped = true;
+        Log.d(TAG,"ReactExoplayerView destroyed");
     }
 
     //BandwidthMeter.EventListener implementation
@@ -772,6 +781,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 } else {
                     useCache = false;
                 }
+                Log.d(TAG,"Player needs source? " + playerNeedsSource);
                 if (playerNeedsSource) {
                     // Will force display of shutter view if needed
                     exoPlayerView.updateShutterViewVisibility();
@@ -800,7 +810,7 @@ public class ReactExoplayerView extends FrameLayout implements
                             } catch (Exception ex) {
                                 self.playerNeedsSource = true;
                                 DebugLog.e(TAG, "Failed to initialize Player! 1");
-                                DebugLog.e(TAG, ex.toString());
+                                DebugLog.e(TAG, ex.toString() + "\n" + Arrays.toString(ex.getStackTrace()));
                                 ex.printStackTrace();
                                 eventEmitter.onVideoError.invoke(ex.toString(), ex, "1001");
                             }
@@ -853,32 +863,64 @@ public class ReactExoplayerView extends FrameLayout implements
 
         mediaSourceFactory.setLocalAdInsertionComponents(unusedAdTagUri -> adsLoader, exoPlayerView);
 
-        player = new ExoPlayer.Builder(getContext(), renderersFactory)
+        /*player = new ExoPlayer.Builder(getContext(), renderersFactory)
                 .setTrackSelector(self.trackSelector)
                 .setBandwidthMeter(bandwidthMeter)
                 .setLoadControl(loadControl)
                 .setMediaSourceFactory(mediaSourceFactory)
-                .build();
-        ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
-        refreshDebugState();
-        player.addListener(self);
-        player.setVolume(muted ? 0.f : audioVolume * 1);
-        exoPlayerView.setPlayer(player);
+                .build();*/
 
-        audioBecomingNoisyReceiver.setListener(self);
-        pictureInPictureReceiver.setListener();
-        bandwidthMeter.addEventListener(new Handler(), self);
-        setPlayWhenReady(!isPaused);
-        playerNeedsSource = true;
+        //CPM temp update
+        establishPlayerConnection();
 
-        PlaybackParameters params = new PlaybackParameters(rate, 1f);
-        player.setPlaybackParameters(params);
-        changeAudioOutput(this.audioOutput);
+        ExecutorService onFinishedExecutor = Executors.newSingleThreadExecutor();
+        cpmConnection.getInstanceFuture().addListener(() -> {
 
-        if(showNotificationControls) {
-            setupPlaybackService();
-        }
+            mainHandler.post( () -> {
+                Log.d(TAG, "Switched player to CPM from REV " + this);
+                player = cpmConnection.getInstance();
+
+                synchronized (playerLock){
+                    Log.d(TAG,"playerLock notifyAll() called");
+                    playerLock.notifyAll();
+                }
+
+                //Old stuff
+                ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
+                refreshDebugState();
+                player.addListener(self);
+                player.setVolume(muted ? 0.f : audioVolume * 1);
+                exoPlayerView.setPlayer(player);
+
+                audioBecomingNoisyReceiver.setListener(self);
+                pictureInPictureReceiver.setListener();
+                bandwidthMeter.addEventListener(new Handler(), self);
+                setPlayWhenReady(!isPaused);
+                playerNeedsSource = true;
+
+                PlaybackParameters params = new PlaybackParameters(rate, 1f);
+                player.setPlaybackParameters(params);
+                changeAudioOutput(this.audioOutput);
+
+                if (showNotificationControls) {
+                    setupPlaybackService();
+                }
+            });
+        },onFinishedExecutor);
     }
+
+    /**
+     * Establish a connection with the CentralizedPlaybackManager, and obtain a promise to retrieve its player.
+     */
+    private void establishPlayerConnection(){
+        //Retrieve player
+        Log.d(TAG,"Retrieving player");
+        cpmConnection = new CentralizedPlaybackManager.LocalBinderConnection();
+        Intent intent = new Intent(themedReactContext, CentralizedPlaybackManager.class);
+        themedReactContext.startService(intent);
+        boolean serviceBound = themedReactContext.bindService(intent, cpmConnection, Context.BIND_AUTO_CREATE);
+    }
+
 
     private AdsMediaSource initializeAds(MediaSource videoSource, Source runningSource) {
         AdsProps adProps = runningSource.getAdsProps();
@@ -963,12 +1005,15 @@ public class ReactExoplayerView extends FrameLayout implements
         }
 
         // wait for player to be set
-        while (player == null) {
-            try {
-                wait();
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                DebugLog.e(TAG, ex.toString());
+        synchronized (playerLock) {
+            while (player == null) {
+                try {
+                    Log.d(TAG,"playerLock wait() called");
+                    playerLock.wait();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    DebugLog.e(TAG, ex.toString());
+                }
             }
         }
 
@@ -1289,7 +1334,7 @@ public class ReactExoplayerView extends FrameLayout implements
             }
 
             updateResumePosition();
-            player.release();
+            //player.release();
             player.removeListener(this);
             PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
             if (pipListenerUnsubscribe != null) {
