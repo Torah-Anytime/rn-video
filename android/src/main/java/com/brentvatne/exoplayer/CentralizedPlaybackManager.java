@@ -99,7 +99,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
 
         Log.d(TAG, "Setting up the player on " + this.getApplicationContext());
-        this.player = new ExoPlayer.Builder(this.getApplicationContext()).build();
+        this.player = new ExoPlayer.Builder(this).build();
+        this.player.setAudioAttributes(AudioAttributes.DEFAULT,true);
     }
 
     private void executeInitializationTasks() {
