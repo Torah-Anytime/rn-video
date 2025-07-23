@@ -1980,4 +1980,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     // Workaround for #3418 - https://github.com/TheWidlarzGroup/react-native-video/issues/3418#issuecomment-2043508862
     @objc
     func setOnClick(_: Any) {}
+    
+    // Handle Bluetooth disconnect to fix player unresponsiveness
+    func handleBluetoothDisconnect() {
+        // Simple approach: just trigger audio session reconfiguration
+        AudioSessionManager.shared.updateAudioSessionConfiguration()
+    }
 }
