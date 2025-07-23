@@ -8,6 +8,9 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.common.UIManagerType
 import kotlin.math.roundToInt
@@ -93,7 +96,32 @@ class VideoManagerModule(reactContext: ReactApplicationContext?) : ReactContextB
         }
     }
 
+    fun emitPhoneCallStateEvent(state: String) {
+        try {
+            reactApplicationContext
+                ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                ?.emit("PhoneCallStateUpdate", state)
+        } catch (e: Exception) {
+            // Handle error silently
+        }
+    }
+
     companion object {
         private const val REACT_CLASS = "VideoManager"
+        
+        @Volatile
+        private var instance: VideoManagerModule? = null
+        
+        @JvmStatic
+        fun getInstance(): VideoManagerModule? = instance
+        
+        @JvmStatic
+        internal fun setInstance(module: VideoManagerModule) {
+            instance = module
+        }
+    }
+
+    init {
+        setInstance(this)
     }
 }

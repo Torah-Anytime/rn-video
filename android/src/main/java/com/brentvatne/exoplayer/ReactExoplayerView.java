@@ -23,6 +23,8 @@ import android.net.Uri;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
 import android.telephony.TelephonyCallback;
+import android.content.pm.PackageManager;
+import android.Manifest;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -153,6 +155,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+
+import com.brentvatne.react.VideoManagerModule;
 
 @SuppressLint("ViewConstructor")
 public class ReactExoplayerView extends FrameLayout implements
@@ -1432,11 +1436,28 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private void handleCallStateChanged(int state) {
         Activity activity = themedReactContext.getCurrentActivity();
+        VideoManagerModule videoManager = VideoManagerModule.getInstance();
 
         switch (state) {
             case TelephonyManager.CALL_STATE_RINGING:
+                // Incoming call - emit event to JavaScript
+                if (videoManager != null) {
+                    videoManager.emitPhoneCallStateEvent("Incoming");
+                }
+                // Also pause video if playing (fallback behavior)
+                if (player != null && player.isPlaying()) {
+                    wasPlayingBeforeCall = true;
+                    if (activity != null) {
+                        activity.runOnUiThread(this::pausePlayback);
+                    }
+                }
+                break;
             case TelephonyManager.CALL_STATE_OFFHOOK:
-                // Phone call started - pause video if playing
+                // Call answered - emit event to JavaScript
+                if (videoManager != null) {
+                    videoManager.emitPhoneCallStateEvent("Answered");
+                }
+                // Also pause video if playing (fallback behavior)
                 if (player != null && player.isPlaying()) {
                     wasPlayingBeforeCall = true;
                     if (activity != null) {
@@ -1445,7 +1466,15 @@ public class ReactExoplayerView extends FrameLayout implements
                 }
                 break;
             case TelephonyManager.CALL_STATE_IDLE:
-                // Phone call ended - resume video if was playing before call and not manually paused
+                // Call ended - emit event to JavaScript
+                if (videoManager != null) {
+                    if (wasPlayingBeforeCall) {
+                        videoManager.emitPhoneCallStateEvent("Disconnected");
+                    } else {
+                        videoManager.emitPhoneCallStateEvent("Missed");
+                    }
+                }
+                // Resume video if was playing before call and not manually paused (fallback behavior)
                 if (wasPlayingBeforeCall && player != null && !isPaused) {
                     wasPlayingBeforeCall = false;
                     if (activity != null) {
@@ -1465,6 +1494,17 @@ public class ReactExoplayerView extends FrameLayout implements
             return;
         }
 
+        // Check if READ_PHONE_STATE permission is granted
+        if (themedReactContext.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) 
+            != PackageManager.PERMISSION_GRANTED) {
+            // Permission not granted - emit event to JavaScript
+            VideoManagerModule videoManager = VideoManagerModule.getInstance();
+            if (videoManager != null) {
+                videoManager.emitPhoneCallStateEvent("PERMISSION_REQUIRED");
+            }
+            return;
+        }
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 telephonyManager.registerTelephonyCallback(
@@ -1478,8 +1518,11 @@ public class ReactExoplayerView extends FrameLayout implements
                 );
             }
         } catch (SecurityException e) {
-            // READ_PHONE_STATE permission not granted
-            android.util.Log.w("ReactExoplayerView", "Phone state permission not granted, call interruption handling disabled");
+            // READ_PHONE_STATE permission not granted (fallback)
+            VideoManagerModule videoManager = VideoManagerModule.getInstance();
+            if (videoManager != null) {
+                videoManager.emitPhoneCallStateEvent("PERMISSION_REQUIRED");
+            }
         }
     }
 
