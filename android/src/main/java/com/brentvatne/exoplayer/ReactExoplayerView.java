@@ -20,6 +20,9 @@ import android.content.ServiceConnection;
 import android.content.res.Configuration;
 import android.media.AudioManager;
 import android.net.Uri;
+import android.telephony.PhoneStateListener;
+import android.telephony.TelephonyManager;
+import android.telephony.TelephonyCallback;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -258,6 +261,9 @@ public class ReactExoplayerView extends FrameLayout implements
     private final AudioBecomingNoisyReceiver audioBecomingNoisyReceiver;
     private final PictureInPictureReceiver pictureInPictureReceiver;
     private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
+    private final TelephonyManager telephonyManager;
+    private final Object phoneStateListener; // Can be PhoneStateListener or TelephonyCallback
+    private boolean wasPlayingBeforeCall = false;
 
     // store last progress event values to avoid sending unnecessary messages
     private long lastPos = -1;
@@ -340,6 +346,10 @@ public class ReactExoplayerView extends FrameLayout implements
         audioBecomingNoisyReceiver = new AudioBecomingNoisyReceiver(themedReactContext);
         audioFocusChangeListener = new OnAudioFocusChangedListener(this, themedReactContext);
         pictureInPictureReceiver = new PictureInPictureReceiver(this, themedReactContext);
+
+        // Initialize phone state listener for call interruption handling
+        telephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        phoneStateListener = createPhoneStateListener();
     }
     private boolean isPlayingAd() {
         return player != null && player.isPlayingAd();
@@ -365,6 +375,8 @@ public class ReactExoplayerView extends FrameLayout implements
 
     @Override
     protected void onDetachedFromWindow() {
+        // Unregister phone state listener
+        unregisterPhoneStateListener();
         cleanupPlaybackService();
         viewInstances.remove(getId());
         super.onDetachedFromWindow();
@@ -377,6 +389,9 @@ public class ReactExoplayerView extends FrameLayout implements
             setPlayWhenReady(!isPaused);
         }
         isInBackground = false;
+
+        // Register phone state listener for call interruption handling
+        registerPhoneStateListener();
     }
 
     @Override
@@ -389,10 +404,15 @@ public class ReactExoplayerView extends FrameLayout implements
             return;
         }
         setPlayWhenReady(false);
+
+        // Unregister phone state listener
+        unregisterPhoneStateListener();
     }
 
     @Override
     public void onHostDestroy() {
+        // Unregister phone state listener on destroy
+        unregisterPhoneStateListener();
         cleanUpResources();
     }
 
@@ -1341,49 +1361,143 @@ public class ReactExoplayerView extends FrameLayout implements
                                                ThemedReactContext themedReactContext) implements AudioManager.OnAudioFocusChangeListener {
 
         @Override
-            public void onAudioFocusChange(int focusChange) {
-                Activity activity = themedReactContext.getCurrentActivity();
-    
-                switch (focusChange) {
-                    case AudioManager.AUDIOFOCUS_LOSS:
-                        view.hasAudioFocus = false;
-                        view.eventEmitter.onAudioFocusChanged.invoke(false);
-                        // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
-                        if (activity != null) {
-                            activity.runOnUiThread(view::pausePlayback);
-                        }
-                        view.audioManager.abandonAudioFocus(this);
-                        break;
-                    case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                        view.eventEmitter.onAudioFocusChanged.invoke(false);
-                        break;
-                    case AudioManager.AUDIOFOCUS_GAIN:
-                        view.hasAudioFocus = true;
-                        view.eventEmitter.onAudioFocusChanged.invoke(true);
-                        break;
-                    default:
-                        break;
-                }
-    
-                if (view.player != null && activity != null) {
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                        // Lower the volume
-                        if (!view.muted) {
-                            activity.runOnUiThread(() ->
-                                    view.player.setVolume(view.audioVolume * 0.8f)
-                            );
-                        }
-                    } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
-                        // Raise it back to normal
-                        if (!view.muted) {
-                            activity.runOnUiThread(() ->
-                                    view.player.setVolume(view.audioVolume * 1)
-                            );
-                        }
+        public void onAudioFocusChange(int focusChange) {
+            Activity activity = themedReactContext.getCurrentActivity();
+
+            switch (focusChange) {
+                case AudioManager.AUDIOFOCUS_LOSS:
+                    view.hasAudioFocus = false;
+                    view.eventEmitter.onAudioFocusChanged.invoke(false);
+                    // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
+                    if (activity != null) {
+                        activity.runOnUiThread(view::pausePlayback);
+                    }
+                    view.audioManager.abandonAudioFocus(this);
+                    break;
+                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                    view.eventEmitter.onAudioFocusChanged.invoke(false);
+                    break;
+                case AudioManager.AUDIOFOCUS_GAIN:
+                    view.hasAudioFocus = true;
+                    view.eventEmitter.onAudioFocusChanged.invoke(true);
+                    break;
+                default:
+                    break;
+            }
+
+            if (view.player != null && activity != null) {
+                if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                    // Lower the volume
+                    if (!view.muted) {
+                        activity.runOnUiThread(() ->
+                                view.player.setVolume(view.audioVolume * 0.8f)
+                        );
+                    }
+                } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
+                    // Raise it back to normal
+                    if (!view.muted) {
+                        activity.runOnUiThread(() ->
+                                view.player.setVolume(view.audioVolume * 1)
+                        );
                     }
                 }
             }
         }
+    }
+
+    // Modern phone state callback for Android S+ (API 31+)
+    @androidx.annotation.RequiresApi(api = Build.VERSION_CODES.S)
+    private class PhoneCallTelephonyCallback extends TelephonyCallback implements TelephonyCallback.CallStateListener {
+        @Override
+        public void onCallStateChanged(int state) {
+            handleCallStateChanged(state);
+        }
+    }
+
+    // Legacy phonWarningse state listener for Android R and below
+    private class PhoneCallStateListener extends PhoneStateListener {
+        @Override
+        public void onCallStateChanged(int state, String phoneNumber) {
+            handleCallStateChanged(state);
+        }
+    }
+
+    private Object createPhoneStateListener() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return new PhoneCallTelephonyCallback();
+        } else {
+            return new PhoneCallStateListener();
+        }
+    }
+
+    private void handleCallStateChanged(int state) {
+        Activity activity = themedReactContext.getCurrentActivity();
+
+        switch (state) {
+            case TelephonyManager.CALL_STATE_RINGING:
+            case TelephonyManager.CALL_STATE_OFFHOOK:
+                // Phone call started - pause video if playing
+                if (player != null && player.isPlaying()) {
+                    wasPlayingBeforeCall = true;
+                    if (activity != null) {
+                        activity.runOnUiThread(this::pausePlayback);
+                    }
+                }
+                break;
+            case TelephonyManager.CALL_STATE_IDLE:
+                // Phone call ended - resume video if was playing before call and not manually paused
+                if (wasPlayingBeforeCall && player != null && !isPaused) {
+                    wasPlayingBeforeCall = false;
+                    if (activity != null) {
+                        activity.runOnUiThread(() -> setPlayWhenReady(true));
+                    }
+                } else {
+                    wasPlayingBeforeCall = false;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void registerPhoneStateListener() {
+        if (telephonyManager == null || phoneStateListener == null) {
+            return;
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                telephonyManager.registerTelephonyCallback(
+                        themedReactContext.getMainExecutor(),
+                        (TelephonyCallback) phoneStateListener
+                );
+            } else {
+                telephonyManager.listen(
+                        (PhoneStateListener) phoneStateListener,
+                        PhoneStateListener.LISTEN_CALL_STATE
+                );
+            }
+        } catch (SecurityException e) {
+            // READ_PHONE_STATE permission not granted
+            android.util.Log.w("ReactExoplayerView", "Phone state permission not granted, call interruption handling disabled");
+        }
+    }
+
+    private void unregisterPhoneStateListener() {
+        if (telephonyManager == null || phoneStateListener == null) {
+            return;
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                telephonyManager.unregisterTelephonyCallback((TelephonyCallback) phoneStateListener);
+            } else {
+                telephonyManager.listen((PhoneStateListener) phoneStateListener, PhoneStateListener.LISTEN_NONE);
+            }
+        } catch (SecurityException e) {
+            // Permission not granted, nothing to unregister
+        }
+    }
 
     private boolean requestAudioFocus() {
         if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
