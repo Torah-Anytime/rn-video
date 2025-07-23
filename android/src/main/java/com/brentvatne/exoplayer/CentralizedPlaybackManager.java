@@ -7,17 +7,13 @@ import android.media.AudioDeviceInfo;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
-import android.os.IInterface;
 import android.os.Looper;
-import android.os.Parcel;
-import android.os.RemoteException;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.AuxEffectInfo;
@@ -55,17 +51,17 @@ import androidx.media3.exoplayer.video.spherical.CameraMotionListener;
 
 import android.app.Service;
 
-import java.io.FileDescriptor;
+import com.google.common.util.concurrent.SettableFuture;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 
@@ -84,16 +80,15 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private final IBinder binder = new LocalBinder();
 
     private static volatile CentralizedPlaybackManager instance = null;
+    private static Set<Runnable> onInitializationTasks = new HashSet<>();
 
-    private static final Set<Object> registry = new ConcurrentSkipListSet<>();
 
 
     //===== Initialization =====
 
-    private CentralizedPlaybackManager(){
+    public CentralizedPlaybackManager(){
         Log.d(TAG,"CPM Instance Created");
         this.mainHandler = new Handler(Looper.getMainLooper());
-        setupPlayer();
     }
 
     private void setupPlayer(){
@@ -103,13 +98,29 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             return;
         }
 
+        Log.d(TAG, "Setting up the player on " + this.getApplicationContext());
         this.player = new ExoPlayer.Builder(this.getApplicationContext()).build();
+    }
+
+    private void executeInitializationTasks() {
+        synchronized (onInitializationTasks) {
+            for (Runnable r : onInitializationTasks) {
+                r.run();
+            }onInitializationTasks.clear();
+        }
+    }
+
+    public static void addInitializationTask(Runnable r){
+        synchronized (onInitializationTasks) {
+            onInitializationTasks.add(r);
+        }
     }
 
     //===== Binding and Lifecycle =====
     public class LocalBinder extends Binder{
         public CentralizedPlaybackManager getInstance(){
             synchronized (CentralizedPlaybackManager.class) {
+                Log.d(TAG,"Instance requested from LocalBinder");
                 if (instance == null) {
                     instance = CentralizedPlaybackManager.this;
                 }
@@ -120,49 +131,50 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     public static class LocalBinderConnection implements ServiceConnection{
         private CentralizedPlaybackManager localInstance = null;
-        private CountDownLatch liLatch = new CountDownLatch(1);
+        private final Object lock = new Object();
 
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
             Log.d(TAG,"Connection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
-            LocalBinder localBinder = (LocalBinder) iBinder;
-            localInstance = localBinder.getInstance();
-            liLatch.countDown();
+            synchronized (lock) {
+                LocalBinder localBinder = (LocalBinder) iBinder;
+                localInstance = localBinder.getInstance();
+                lock.notifyAll();
+            }
         }
 
         @Override
         public void onServiceDisconnected(ComponentName componentName) {
             Log.d(TAG,"Disconnection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
-            liLatch = new CountDownLatch(1);
-            localInstance = null;
+            synchronized (lock) {
+                localInstance = null;
+                lock.notifyAll();
+            }
         }
 
         public CentralizedPlaybackManager getInstance(){
-            return localInstance;
-        }
-
-        public CentralizedPlaybackManager waitForInstance(long timeout, TimeUnit unit){
-            try {
-                if(liLatch.await(timeout, unit)){
-                    return localInstance;
-                }else{
-                    Log.w(TAG,"Timed out while waiting for instance, returning null");
-                    return null;
-                }
-            } catch (InterruptedException e) {
-                Log.e(TAG,"Interrupted while waiting for instance, returning null");
-                return null;
-            }
-        }
-
-        public CentralizedPlaybackManager waitForInstance(){
-            try {
-                liLatch.await();
+            Log.d(TAG,"Instance requested from ServiceConnection");
+            synchronized (lock) {
                 return localInstance;
-            } catch (InterruptedException e) {
-                Log.e(TAG,"Interrupted while waiting for instance, returning null");
-                return null;
             }
+        }
+
+        public SettableFuture<CentralizedPlaybackManager> getInstanceFuture(){
+            SettableFuture<CentralizedPlaybackManager> result = SettableFuture.create();
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            executor.execute(() -> {
+                synchronized (lock) {
+                    while (localInstance == null) {
+                        try {
+                            lock.wait();
+                        } catch (InterruptedException e) {
+                            Log.w(TAG, "Thread interrupted while waiting for localInstance to become not null, returning localInstance (probably null)");
+                        }
+                    }
+                    result.set(localInstance);
+                }
+            });
+            return result;
         }
     }
 
@@ -183,6 +195,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public void onCreate() {
         super.onCreate();
+        setupPlayer();
+        executeInitializationTasks();
         Log.d(TAG, "CentralizedPlaybackManager created");
     }
 
