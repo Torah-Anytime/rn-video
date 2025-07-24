@@ -255,10 +255,8 @@ public class ReactExoplayerView extends FrameLayout implements
 
     // React
     private final ThemedReactContext themedReactContext;
-    private final AudioManager audioManager;
     private final AudioBecomingNoisyReceiver audioBecomingNoisyReceiver;
     private final PictureInPictureReceiver pictureInPictureReceiver;
-    private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
 
     // store last progress event values to avoid sending unnecessary messages
     private long lastPos = -1;
@@ -338,11 +336,9 @@ public class ReactExoplayerView extends FrameLayout implements
 
         createViews();
 
-        audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         themedReactContext.addLifecycleEventListener(this);
         pipListenerUnsubscribe = PictureInPictureUtil.addLifecycleEventListener(context, this);
         audioBecomingNoisyReceiver = new AudioBecomingNoisyReceiver(themedReactContext);
-        audioFocusChangeListener = new OnAudioFocusChangedListener(this, themedReactContext);
         pictureInPictureReceiver = new PictureInPictureReceiver(this, themedReactContext);
     }
     private boolean isPlayingAd() {
@@ -1350,71 +1346,13 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    private record OnAudioFocusChangedListener(ReactExoplayerView view,
-                                               ThemedReactContext themedReactContext) implements AudioManager.OnAudioFocusChangeListener {
-
-        @Override
-        public void onAudioFocusChange(int focusChange) {
-            switch (focusChange) {
-                case AudioManager.AUDIOFOCUS_LOSS:
-                    view.hasAudioFocus = false;
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
-                    CentralizedPlaybackManager.getMainHandler().post(view::pausePlayback);
-
-                    view.audioManager.abandonAudioFocus(this);
-                    break;
-                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    break;
-                case AudioManager.AUDIOFOCUS_GAIN:
-                    view.hasAudioFocus = true;
-                    view.eventEmitter.onAudioFocusChanged.invoke(true);
-                    break;
-                default:
-                    break;
-            }
-
-            if (view.player != null) {
-                if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                    // Lower the volume
-                    if (!view.muted) {
-                        CentralizedPlaybackManager.getMainHandler().post(() ->
-                                view.player.setVolume(view.audioVolume * 0.8f)
-                        );
-                    }
-                } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
-                    // Raise it back to normal
-                    if (!view.muted) {
-                        CentralizedPlaybackManager.getMainHandler().post(() ->
-                                view.player.setVolume(view.audioVolume * 1)
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    private boolean requestAudioFocus() {
-        if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
-            return true;
-        }
-        int result = audioManager.requestAudioFocus(audioFocusChangeListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN);
-        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-    }
-
     private void setPlayWhenReady(boolean playWhenReady) {
         if (player == null) {
             return;
         }
 
         if (playWhenReady) {
-            this.hasAudioFocus = requestAudioFocus();
-            if (this.hasAudioFocus) {
-                player.setPlayWhenReady(true);
-            }
+            player.setPlayWhenReady(true);
         } else {
             player.setPlayWhenReady(false);
         }
@@ -1444,7 +1382,7 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private void onStopPlayback() {
-        audioManager.abandonAudioFocus(audioFocusChangeListener);
+
     }
 
     private void updateResumePosition() {
@@ -2355,14 +2293,16 @@ public class ReactExoplayerView extends FrameLayout implements
             int contentType = Util.getAudioContentTypeForStreamType(streamType);
             AudioAttributes audioAttributes = new AudioAttributes.Builder().setUsage(usage)
                     .setContentType(contentType)
+                    .setFlags(player.getAudioAttributes().flags)
                     .build();
-            player.setAudioAttributes(audioAttributes, false);
+            player.setAudioAttributes(audioAttributes, true);
             AudioManager audioManager = (AudioManager) themedReactContext.getSystemService(Context.AUDIO_SERVICE);
             boolean isSpeakerOutput = output == AudioOutput.SPEAKER;
             audioManager.setMode(
                     isSpeakerOutput ? AudioManager.MODE_NORMAL
                             : AudioManager.MODE_IN_COMMUNICATION);
             audioManager.setSpeakerphoneOn(isSpeakerOutput);
+            Log.d(TAG,"Audio output changed");
         }
     }
 

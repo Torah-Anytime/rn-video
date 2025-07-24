@@ -192,7 +192,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
                 try {
                     Thread.sleep(2000);
                     mainHandler.post(() -> {
-                        if(player != null && player.getCurrentMediaItem() != null) Log.d(TAG,"Player mediaItem: " + player.getCurrentMediaItem().mediaId);
+                        //if(player != null && player.getCurrentMediaItem() != null) Log.d(TAG,"Player mediaItem: " + player.getCurrentMediaItem().mediaId);
+                        //if(player != null) Log.d(TAG,"Player volume: " + player.getVolume());
                     });
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
