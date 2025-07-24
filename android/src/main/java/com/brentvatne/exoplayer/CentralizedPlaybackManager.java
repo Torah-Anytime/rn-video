@@ -72,15 +72,14 @@ import java.util.function.Supplier;
  */
 public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private static final String TAG = "CentralizedPlaybackManager";
+    private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private final long COMMUNICATION_WAIT = 30000;
 
-    private final Handler mainHandler;
     private ExoPlayer player;
     private final IBinder binder = new LocalBinder();
 
     private static volatile CentralizedPlaybackManager instance = null;
-    private static Set<Runnable> onInitializationTasks = new HashSet<>();
 
 
 
@@ -88,7 +87,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     public CentralizedPlaybackManager(){
         Log.d(TAG,"CPM Instance Created");
-        this.mainHandler = new Handler(Looper.getMainLooper());
     }
 
     private void setupPlayer(){
@@ -103,19 +101,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         this.player.setAudioAttributes(AudioAttributes.DEFAULT,true);
     }
 
-    private void executeInitializationTasks() {
-        synchronized (onInitializationTasks) {
-            for (Runnable r : onInitializationTasks) {
-                r.run();
-            }onInitializationTasks.clear();
-        }
-    }
-
-    public static void addInitializationTask(Runnable r){
-        synchronized (onInitializationTasks) {
-            onInitializationTasks.add(r);
-        }
-    }
 
     //===== Binding and Lifecycle =====
     public class LocalBinder extends Binder{
@@ -197,7 +182,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public void onCreate() {
         super.onCreate();
         setupPlayer();
-        executeInitializationTasks();
         //tempPlayerStateLog();
         Log.d(TAG, "CentralizedPlaybackManager created");
     }
@@ -222,6 +206,17 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         super.onDestroy();
         Log.d(TAG, "CentralizedPlaybackManager destroyed");
     }
+
+    //===== Misc Public API =====
+
+    /**
+     * Get the main handler of this object, so other parts of the application can run code on the same
+     * @return the instance's mainHandler
+     */
+    public static Handler getMainHandler() {
+        return mainHandler;
+    }
+
 
     //===== Util =====
 

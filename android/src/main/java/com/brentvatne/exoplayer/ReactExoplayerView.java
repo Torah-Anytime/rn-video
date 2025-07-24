@@ -188,7 +188,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private ImaAdsLoader adsLoader;
 
     private DataSource.Factory mediaDataSourceFactory;
-    private ExoPlayer player;
+    private CentralizedPlaybackManager player;
     private DefaultTrackSelector trackSelector;
     private boolean playerNeedsSource;
     private ServiceConnection playbackServiceConnection;
@@ -217,8 +217,8 @@ public class ReactExoplayerView extends FrameLayout implements
     private boolean hasDrmFailed = false;
     private boolean isUsingContentResolution = false;
     private boolean selectTrackWhenReady = false;
-    private final Handler mainHandler;
-    private Runnable mainRunnable;
+    private Runnable playerInitRunnable;
+    private Runnable playerPostInitRunnable;
     private Runnable pipListenerUnsubscribe;
     private boolean useCache = false;
     private ControlsConfig controlsConfig = new ControlsConfig();
@@ -274,7 +274,6 @@ public class ReactExoplayerView extends FrameLayout implements
 
     //CentralizedPlayerManager interface
     private CentralizedPlaybackManager.LocalBinderConnection cpmConnection;
-    private final Object playerLock;
 
     public void setCmcdConfigurationFactory(CmcdConfiguration.Factory factory) {
         this.cmcdConfigurationFactory = factory;
@@ -336,9 +335,6 @@ public class ReactExoplayerView extends FrameLayout implements
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && pictureInPictureParamsBuilder == null) {
             this.pictureInPictureParamsBuilder = new PictureInPictureParams.Builder();
         }
-        this.mainHandler = new Handler();
-
-        this.playerLock = new Object();
 
         createViews();
 
@@ -754,12 +750,9 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    private void initializePlayer() {
-        ReactExoplayerView self = this;
-        Activity activity = themedReactContext.getCurrentActivity();
-        // This ensures all props have been settled, to avoid async racing conditions.
-        Source runningSource = source;
-        mainRunnable = () -> {
+    private Runnable initializePlayerRunnable(Source runningSource, ReactExoplayerView self){
+        return () -> {
+            Log.d(TAG, "Running Player Initialization");
             if (viewHasDropped && runningSource == source) {
                 return;
             }
@@ -781,44 +774,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 } else {
                     useCache = false;
                 }
-                Log.d(TAG,"Player needs source? " + playerNeedsSource);
-                if (playerNeedsSource) {
-                    // Will force display of shutter view if needed
-                    exoPlayerView.updateShutterViewVisibility();
-                    exoPlayerView.invalidateAspectRatio();
-                    // DRM session manager creation must be done on a different thread to prevent crashes so we start a new thread
-                    ExecutorService es = Executors.newSingleThreadExecutor();
-                    es.execute(() -> {
-                        // DRM initialization must run on a different thread
-                        if (viewHasDropped && runningSource == source) {
-                            return;
-                        }
-                        if (activity == null) {
-                            DebugLog.e(TAG, "Failed to initialize Player!, null activity");
-                            eventEmitter.onVideoError.invoke("Failed to initialize Player!", new Exception("Current Activity is null!"), "1001");
-                            return;
-                        }
 
-                        // Initialize handler to run on the main thread
-                        activity.runOnUiThread(() -> {
-                            if (viewHasDropped && runningSource == source) {
-                                return;
-                            }
-                            try {
-                                // Source initialization must run on the main thread
-                                initializePlayerSource(runningSource);
-                            } catch (Exception ex) {
-                                self.playerNeedsSource = true;
-                                DebugLog.e(TAG, "Failed to initialize Player! 1");
-                                DebugLog.e(TAG, ex.toString() + "\n" + Arrays.toString(ex.getStackTrace()));
-                                ex.printStackTrace();
-                                eventEmitter.onVideoError.invoke(ex.toString(), ex, "1001");
-                            }
-                        });
-                    });
-                } else if (runningSource == source) {
-                    initializePlayerSource(runningSource);
-                }
             } catch (Exception ex) {
                 self.playerNeedsSource = true;
                 DebugLog.e(TAG, "Failed to initialize Player! 2");
@@ -827,7 +783,56 @@ public class ReactExoplayerView extends FrameLayout implements
                 eventEmitter.onVideoError.invoke(ex.toString(), ex, "1001");
             }
         };
-        mainHandler.postDelayed(mainRunnable, 1);
+    }
+
+    private Runnable onPlayerInitializedRunnable(Source runningSource, ReactExoplayerView self){
+        return () -> {
+            player.getMainHandler().post(() -> {
+                Log.d(TAG, "Running Player Post-Initialization");
+
+                postInitializePlayerCore(self);
+
+                // Create source (and DRM) if needed
+                if (playerNeedsSource) {
+                    // Will force display of shutter view if needed
+                    exoPlayerView.updateShutterViewVisibility();
+                    exoPlayerView.invalidateAspectRatio();
+                    // DRM session manager creation must be done on a different thread to prevent crashes so we start a new thread
+
+                    if (viewHasDropped && runningSource == source) {
+                        return;
+                    }
+                    try {
+                        // Source initialization must run on the main thread
+                        initializePlayerSource(runningSource);
+                    } catch (Exception ex) {
+                        self.playerNeedsSource = true;
+                        DebugLog.e(TAG, "Failed to initialize Player! 1");
+                        DebugLog.e(TAG, ex.toString() + "\n" + Arrays.toString(ex.getStackTrace()));
+                        ex.printStackTrace();
+                        eventEmitter.onVideoError.invoke(ex.toString(), ex, "1001");
+                    }
+
+                } else if (runningSource == source) {
+                    initializePlayerSource(runningSource);
+                }
+            });
+        };
+    }
+
+    private void initializePlayer() {
+        ReactExoplayerView self = this;
+        //Activity activity = themedReactContext.getCurrentActivity();
+        // This ensures all props have been settled, to avoid async racing conditions.
+        Source runningSource = source;
+
+        playerInitRunnable = initializePlayerRunnable(source,self);
+        playerPostInitRunnable = onPlayerInitializedRunnable(source,self);
+
+        // Connect to player to initialize a connection to it, then run some code once we have a solid player object.
+        ExecutorService es = Executors.newSingleThreadExecutor();
+        playerInitRunnable.run();
+        cpmConnection.getInstanceFuture().addListener(playerPostInitRunnable,es);
     }
 
     public void getCurrentPosition(Promise promise) {
@@ -872,41 +877,33 @@ public class ReactExoplayerView extends FrameLayout implements
 
         //CPM temp update
         establishPlayerConnection();
+    }
 
-        ExecutorService onFinishedExecutor = Executors.newSingleThreadExecutor();
-        cpmConnection.getInstanceFuture().addListener(() -> {
+    private void postInitializePlayerCore(ReactExoplayerView self){
+        Log.d(TAG, "Switched player to CPM from REV " + this);
+        player = cpmConnection.getInstance();
 
-            mainHandler.post( () -> {
-                Log.d(TAG, "Switched player to CPM from REV " + this);
-                player = cpmConnection.getInstance();
 
-                synchronized (playerLock){
-                    Log.d(TAG,"playerLock notifyAll() called");
-                    playerLock.notifyAll();
-                }
+        //Old stuff
+        ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
+        refreshDebugState();
+        player.addListener(self);
+        player.setVolume(muted ? 0.f : audioVolume * 1);
+        exoPlayerView.setPlayer(player);
 
-                //Old stuff
-                ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
-                refreshDebugState();
-                player.addListener(self);
-                player.setVolume(muted ? 0.f : audioVolume * 1);
-                exoPlayerView.setPlayer(player);
+        audioBecomingNoisyReceiver.setListener(self);
+        pictureInPictureReceiver.setListener();
+        bandwidthMeter.addEventListener(new Handler(), self);
+        setPlayWhenReady(!isPaused);
+        playerNeedsSource = true;
 
-                audioBecomingNoisyReceiver.setListener(self);
-                pictureInPictureReceiver.setListener();
-                bandwidthMeter.addEventListener(new Handler(), self);
-                setPlayWhenReady(!isPaused);
-                playerNeedsSource = true;
+        PlaybackParameters params = new PlaybackParameters(rate, 1f);
+        player.setPlaybackParameters(params);
+        changeAudioOutput(this.audioOutput);
 
-                PlaybackParameters params = new PlaybackParameters(rate, 1f);
-                player.setPlaybackParameters(params);
-                changeAudioOutput(this.audioOutput);
-
-                if (showNotificationControls) {
-                    setupPlaybackService();
-                }
-            });
-        },onFinishedExecutor);
+        if (showNotificationControls) {
+            setupPlaybackService();
+        }
     }
 
     /**
@@ -1002,19 +999,6 @@ public class ReactExoplayerView extends FrameLayout implements
         if (subtitlesSource != null) {
             MediaSource[] mediaSourceArray = {mediaSource, subtitlesSource};
             mediaSource = new MergingMediaSource(mediaSourceArray);
-        }
-
-        // wait for player to be set
-        synchronized (playerLock) {
-            while (player == null) {
-                try {
-                    Log.d(TAG,"playerLock wait() called");
-                    playerLock.wait();
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    DebugLog.e(TAG, ex.toString());
-                }
-            }
         }
 
         boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
@@ -1355,9 +1339,14 @@ public class ReactExoplayerView extends FrameLayout implements
         pictureInPictureReceiver.removeListener();
         bandwidthMeter.removeEventListener(this);
 
-        if (mainHandler != null && mainRunnable != null) {
-            mainHandler.removeCallbacks(mainRunnable);
-            mainRunnable = null;
+        if (playerInitRunnable != null) {
+            CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerInitRunnable);
+            playerInitRunnable = null;
+        }
+
+        if(playerPostInitRunnable != null){
+            CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerPostInitRunnable);
+            playerPostInitRunnable = null;
         }
     }
 
