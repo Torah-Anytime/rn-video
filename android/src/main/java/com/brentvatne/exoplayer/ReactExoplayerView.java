@@ -1355,16 +1355,13 @@ public class ReactExoplayerView extends FrameLayout implements
 
         @Override
         public void onAudioFocusChange(int focusChange) {
-            Activity activity = themedReactContext.getCurrentActivity();
-
             switch (focusChange) {
                 case AudioManager.AUDIOFOCUS_LOSS:
                     view.hasAudioFocus = false;
                     view.eventEmitter.onAudioFocusChanged.invoke(false);
                     // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
-                    if (activity != null) {
-                        activity.runOnUiThread(view::pausePlayback);
-                    }
+                    CentralizedPlaybackManager.getMainHandler().post(view::pausePlayback);
+
                     view.audioManager.abandonAudioFocus(this);
                     break;
                 case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
@@ -1378,18 +1375,18 @@ public class ReactExoplayerView extends FrameLayout implements
                     break;
             }
 
-            if (view.player != null && activity != null) {
+            if (view.player != null) {
                 if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
                     // Lower the volume
                     if (!view.muted) {
-                        activity.runOnUiThread(() ->
+                        CentralizedPlaybackManager.getMainHandler().post(() ->
                                 view.player.setVolume(view.audioVolume * 0.8f)
                         );
                     }
                 } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
                     // Raise it back to normal
                     if (!view.muted) {
-                        activity.runOnUiThread(() ->
+                        CentralizedPlaybackManager.getMainHandler().post(() ->
                                 view.player.setVolume(view.audioVolume * 1)
                         );
                     }
