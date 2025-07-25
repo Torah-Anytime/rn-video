@@ -53,6 +53,7 @@ import android.app.Service;
 
 import com.google.common.util.concurrent.SettableFuture;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -99,6 +100,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         Log.d(TAG, "Setting up the player on " + this.getApplicationContext());
         this.player = new ExoPlayer.Builder(this).build();
         this.player.setAudioAttributes(AudioAttributes.DEFAULT,true);
+
+        startDebuggingListener();
     }
 
 
@@ -182,24 +185,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public void onCreate() {
         super.onCreate();
         setupPlayer();
-        //tempPlayerStateLog();
         Log.d(TAG, "CentralizedPlaybackManager created");
-    }
-
-    private void tempPlayerStateLog(){
-        Executors.newSingleThreadExecutor().execute(() -> {
-            while (true){
-                try {
-                    Thread.sleep(2000);
-                    mainHandler.post(() -> {
-                        //if(player != null && player.getCurrentMediaItem() != null) Log.d(TAG,"Player mediaItem: " + player.getCurrentMediaItem().mediaId);
-                        //if(player != null) Log.d(TAG,"Player volume: " + player.getVolume());
-                    });
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        });
     }
 
     @Override
@@ -216,6 +202,26 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
      */
     public static Handler getMainHandler() {
         return mainHandler;
+    }
+
+
+    //===== Debugging =====
+
+    private void startDebuggingListener(){
+        player.addListener(new Player.Listener() {
+            /*@Override
+            public void onTimelineChanged(Timeline timeline, int reason) {
+                try{
+                    throw new IllegalStateException();
+                } catch (IllegalStateException e) {
+                    Log.w(TAG,"Source changed: current index: " + player.getCurrentMediaItemIndex());
+                    Log.e(TAG,"Source changed: reason: " + reason + " Stack trace: ");
+                    for(StackTraceElement element : e.getStackTrace()){
+                        Log.e(TAG,"\t" + element.toString());
+                    }
+                }
+            }*/
+        });
     }
 
 

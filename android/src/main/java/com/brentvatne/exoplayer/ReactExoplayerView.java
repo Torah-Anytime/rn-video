@@ -211,7 +211,6 @@ public class ReactExoplayerView extends FrameLayout implements
     private PictureInPictureParams.Builder pictureInPictureParamsBuilder;
     private boolean hasAudioFocus = false;
     private float rate = 1f;
-    private AudioOutput audioOutput = AudioOutput.SPEAKER;
     private float audioVolume = 1f;
     private int maxBitRate = 0;
     private boolean hasDrmFailed = false;
@@ -895,7 +894,6 @@ public class ReactExoplayerView extends FrameLayout implements
 
         PlaybackParameters params = new PlaybackParameters(rate, 1f);
         player.setPlaybackParameters(params);
-        changeAudioOutput(this.audioOutput);
 
         if (showNotificationControls) {
             setupPlaybackService();
@@ -2283,33 +2281,6 @@ public class ReactExoplayerView extends FrameLayout implements
         this.muted = muted;
         if (player != null) {
             player.setVolume(muted ? 0.f : audioVolume);
-        }
-    }
-
-    private void changeAudioOutput(AudioOutput output) {
-        if (player != null) {
-            int streamType = output.getStreamType();
-            int usage = Util.getAudioUsageForStreamType(streamType);
-            int contentType = Util.getAudioContentTypeForStreamType(streamType);
-            AudioAttributes audioAttributes = new AudioAttributes.Builder().setUsage(usage)
-                    .setContentType(contentType)
-                    .setFlags(player.getAudioAttributes().flags)
-                    .build();
-            player.setAudioAttributes(audioAttributes, true);
-            AudioManager audioManager = (AudioManager) themedReactContext.getSystemService(Context.AUDIO_SERVICE);
-            boolean isSpeakerOutput = output == AudioOutput.SPEAKER;
-            audioManager.setMode(
-                    isSpeakerOutput ? AudioManager.MODE_NORMAL
-                            : AudioManager.MODE_IN_COMMUNICATION);
-            audioManager.setSpeakerphoneOn(isSpeakerOutput);
-            Log.d(TAG,"Audio output changed");
-        }
-    }
-
-    public void setAudioOutput(AudioOutput output) {
-        if (audioOutput != output) {
-            this.audioOutput = output;
-            changeAudioOutput(output);
         }
     }
 
