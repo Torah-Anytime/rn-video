@@ -1593,7 +1593,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public long getCurrentPosition() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (int) convertToMainThreadTask(this::getCurrentPosition);
+            return (long) convertToMainThreadTask(this::getCurrentPosition);
         }else{
             return player.getCurrentPosition();
         }
@@ -1602,7 +1602,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public long getBufferedPosition() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (int) convertToMainThreadTask(this::getBufferedPosition);
+            return (long) convertToMainThreadTask(this::getBufferedPosition);
         }else{
             return player.getBufferedPosition();
         }
@@ -1620,7 +1620,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public long getTotalBufferedDuration() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (int) convertToMainThreadTask(this::getTotalBufferedDuration);
+            return (long) convertToMainThreadTask(this::getTotalBufferedDuration);
         }else{
             return player.getTotalBufferedDuration();
         }
