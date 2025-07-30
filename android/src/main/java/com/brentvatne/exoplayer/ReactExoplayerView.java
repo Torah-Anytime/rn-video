@@ -908,7 +908,6 @@ public class ReactExoplayerView extends FrameLayout implements
         Log.d(TAG,"Retrieving player");
         cpmConnection = new CentralizedPlaybackManager.LocalBinderConnection();
         Intent intent = new Intent(themedReactContext, CentralizedPlaybackManager.class);
-        themedReactContext.startService(intent);
         boolean serviceBound = themedReactContext.bindService(intent, cpmConnection, Context.BIND_AUTO_CREATE);
     }
 
