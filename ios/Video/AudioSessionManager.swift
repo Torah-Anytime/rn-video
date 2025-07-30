@@ -331,11 +331,32 @@ class AudioSessionManager {
         }
 
         switch reason {
-        case .categoryChange, .override, .wakeFromSleep, .newDeviceAvailable, .oldDeviceUnavailable:
+        case .categoryChange, .override, .wakeFromSleep, .newDeviceAvailable:
             // Reconfigure audio session when route changes
             updateAudioSessionConfiguration()
+        case .oldDeviceUnavailable:
+            // Handle external audio device disconnection (e.g., Bluetooth)
+            handleBluetoothDisconnection()
         default:
             break
+        }
+    }
+    
+    private func handleBluetoothDisconnection() {
+        // Force audio session reset by deactivating and reactivating
+        if isAudioSessionActive {
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: [])
+                isAudioSessionActive = false
+                print("Deactivated audio session due to Bluetooth disconnect")
+            } catch {
+                print("Failed to deactivate audio session: \(error.localizedDescription)")
+            }
+        }
+        
+        // Immediately reactivate with a brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.updateAudioSessionConfiguration()
         }
     }
 }
