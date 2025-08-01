@@ -263,7 +263,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private final ThemedReactContext themedReactContext;
     private final AudioBecomingNoisyReceiver audioBecomingNoisyReceiver;
     private final PictureInPictureReceiver pictureInPictureReceiver;
-    private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
+    //private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
     private final TelephonyManager telephonyManager;
     private final Object phoneStateListener; // Can be PhoneStateListener or TelephonyCallback
     private boolean wasPlayingBeforeCall = false;
@@ -1363,7 +1363,7 @@ public class ReactExoplayerView extends FrameLayout implements
             playerInitRunnable = null;
         }
 
-        @Override
+        /*@Override
         public void onAudioFocusChange(int focusChange) {
             Activity activity = themedReactContext.getCurrentActivity();
 
@@ -1405,7 +1405,7 @@ public class ReactExoplayerView extends FrameLayout implements
                     }
                 }
             }
-        }
+        }*/
     }
 
     // Modern phone state callback for Android S+ (API 31+)
@@ -1545,10 +1545,11 @@ public class ReactExoplayerView extends FrameLayout implements
         if (disableFocus || source.getUri() == null || this.hasAudioFocus) {
             return true;
         }
-        int result = audioManager.requestAudioFocus(audioFocusChangeListener,
+        /*int result = audioManager.requestAudioFocus(audioFocusChangeListener,
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN);
-        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;*/
+        return true;
     }
 
     private void setPlayWhenReady(boolean playWhenReady) {
