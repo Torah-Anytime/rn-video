@@ -66,7 +66,13 @@ class VideoPlaybackService : MediaSessionService() {
         addSession(mediaSession)
 
         val notificationId = player.hashCode()
-        startForeground(notificationId, buildNotification(mediaSession))
+        val notification = try {
+            buildNotification(mediaSession)
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "Failed to build notification, using placeholder: ${e.message}")
+            createPlaceholderNotification()
+        }
+        startForeground(notificationId, notification)
     }
 
     fun unregisterPlayer(player: ExoPlayer) {
@@ -123,7 +129,12 @@ class VideoPlaybackService : MediaSessionService() {
             return
         }
 
-        val notification = buildNotification(session)
+        val notification = try {
+            buildNotification(session)
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "Failed to build notification in createSessionNotification, using placeholder: ${e.message}")
+            createPlaceholderNotification()
+        }
 
         notificationManager.notify(session.player.hashCode(), notification)
     }
@@ -203,7 +214,16 @@ class VideoPlaybackService : MediaSessionService() {
                 .setContentTitle(session.player.mediaMetadata.title)
                 .setContentText(session.player.mediaMetadata.description)
                 .setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-                .setLargeIcon(session.player.mediaMetadata.artworkUri?.let { session.bitmapLoader.loadBitmap(it).get() })
+                .setLargeIcon(
+                    try {
+                        session.player.mediaMetadata.artworkUri?.let { uri ->
+                            session.bitmapLoader.loadBitmap(uri).get()
+                        }
+                    } catch (e: Exception) {
+                        DebugLog.w(TAG, "Failed to load artwork for notification: ${e.message}")
+                        null
+                    }
+                )
                 .setOngoing(true)
                 .build()
         }
