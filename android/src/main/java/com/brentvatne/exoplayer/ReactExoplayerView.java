@@ -1330,6 +1330,7 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private void releasePlayer() {
+        Log.d(TAG,"Player released");
         if (player != null) {
             if(playbackServiceBinder != null) {
                 playbackServiceBinder.getService().unregisterPlayer(player);
@@ -1346,6 +1347,11 @@ public class ReactExoplayerView extends FrameLayout implements
             trackSelector = null;
 
             ReactNativeVideoManager.Companion.getInstance().onInstanceRemoved(instanceId, player);
+
+            CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerInitRunnable);
+            CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerPostInitRunnable);
+            player.removeListener(eventListener);
+
             player = null;
         }
 
