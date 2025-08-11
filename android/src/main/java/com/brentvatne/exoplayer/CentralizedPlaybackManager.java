@@ -32,6 +32,8 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.Size;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.DecoderCounters;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -40,12 +42,15 @@ import androidx.media3.exoplayer.Renderer;
 import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.analytics.AnalyticsCollector;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
+import androidx.media3.exoplayer.drm.DrmSessionManagerProvider;
 import androidx.media3.exoplayer.image.ImageOutput;
 import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.source.ShuffleOrder;
 import androidx.media3.exoplayer.source.TrackGroupArray;
 import androidx.media3.exoplayer.trackselection.TrackSelectionArray;
 import androidx.media3.exoplayer.trackselection.TrackSelector;
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener;
 import androidx.media3.exoplayer.video.spherical.CameraMotionListener;
 
@@ -82,6 +87,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     private static volatile CentralizedPlaybackManager instance = null;
 
+    private final static boolean logAllMethodCalls = false;
+
 
 
     //===== Initialization =====
@@ -98,10 +105,39 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
 
         Log.d(TAG, "Setting up the player on " + this.getApplicationContext());
-        this.player = new ExoPlayer.Builder(this).build();
+        this.player = new ExoPlayer.Builder(this)
+                .setMediaSourceFactory(getCustomMediaSourceFactory())
+                .build();
         this.player.setAudioAttributes(AudioAttributes.DEFAULT,true);
 
         startDebuggingListener();
+    }
+
+    private MediaSource.Factory getCustomMediaSourceFactory(){
+        DataSource.Factory dsFactory = new DefaultDataSource.Factory(getApplicationContext());
+        ProgressiveMediaSource.Factory defaultFactory = new ProgressiveMediaSource.Factory(dsFactory);
+
+        return new MediaSource.Factory() {
+            @Override
+            public MediaSource.Factory setDrmSessionManagerProvider(DrmSessionManagerProvider drmSessionManagerProvider) {
+                return defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider);
+            }
+
+            @Override
+            public MediaSource.Factory setLoadErrorHandlingPolicy(LoadErrorHandlingPolicy loadErrorHandlingPolicy) {
+                return defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy);
+            }
+
+            @Override
+            public int[] getSupportedTypes() {
+                return defaultFactory.getSupportedTypes();
+            }
+
+            @Override
+            public MediaSource createMediaSource(MediaItem mediaItem) {
+                return defaultFactory.createMediaSource(mediaItem);
+            }
+        };
     }
 
 
@@ -245,6 +281,10 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
     }
 
+    private void logMethodCall(String methodName){
+        if(logAllMethodCalls && !methodName.startsWith("get")) Log.d(TAG,"Method Called: " + methodName);
+    }
+
     //===== Overrides =====
 
     @Nullable
@@ -253,6 +293,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
            return (ExoPlaybackException) convertToMainThreadTask(() -> player.getPlayerError());
         }else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlayerError();
         }
     }
@@ -263,6 +304,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::play);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.play();
     }
 
@@ -272,6 +314,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::pause);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.pause();
     }
 
@@ -281,6 +324,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> this.setPlayWhenReady(playWhenReady));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPlayWhenReady(playWhenReady);
     }
 
@@ -289,6 +333,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::getPlayWhenReady);
         }else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlayWhenReady();
         }
     }
@@ -299,6 +344,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> this.setRepeatMode(repeatMode));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setRepeatMode(repeatMode);
     }
 
@@ -307,6 +353,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getRepeatMode);
         }else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getRepeatMode();
         }
     }
@@ -317,6 +364,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> this.setShuffleModeEnabled(shuffleModeEnabled));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setShuffleModeEnabled(shuffleModeEnabled);
     }
 
@@ -325,6 +373,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::getShuffleModeEnabled);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getShuffleModeEnabled();
         }
     }
@@ -334,6 +383,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isLoading);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isLoading();
         }
     }
@@ -344,6 +394,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekToDefaultPosition);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToDefaultPosition();
     }
 
@@ -353,6 +404,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> this.seekToDefaultPosition(mediaItemIndex));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToDefaultPosition(mediaItemIndex);
     }
 
@@ -362,6 +414,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> this.seekTo(positionMs));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekTo(positionMs);
     }
 
@@ -371,6 +424,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> this.seekTo(mediaItemIndex,positionMs));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekTo(mediaItemIndex,positionMs);
     }
 
@@ -379,6 +433,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getSeekBackIncrement);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSeekBackIncrement();
         }
     }
@@ -389,6 +444,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekBack);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekBack();
     }
 
@@ -397,6 +453,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getSeekForwardIncrement);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSeekForwardIncrement();
         }
     }
@@ -407,6 +464,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekForward);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekForward();
     }
 
@@ -415,6 +473,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasPrevious);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasPrevious();
         }
     }
@@ -424,6 +483,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasPreviousWindow);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasPreviousWindow();
         }
     }
@@ -433,6 +493,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasPreviousMediaItem);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasPreviousMediaItem();
         }
     }
@@ -443,6 +504,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::previous);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.previous();
     }
 
@@ -452,6 +514,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekToPreviousWindow);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToPreviousWindow();
     }
 
@@ -461,6 +524,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekToPreviousMediaItem);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToPreviousMediaItem();
     }
 
@@ -469,6 +533,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getMaxSeekToPreviousPosition);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMaxSeekToPreviousPosition();
         }
     }
@@ -479,6 +544,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekToPrevious);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToPrevious();
     }
 
@@ -487,6 +553,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasNext);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasNext();
         }
     }
@@ -496,6 +563,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasNextWindow);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasNextWindow();
         }
     }
@@ -505,6 +573,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasNextMediaItem);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasNextMediaItem();
         }
     }
@@ -515,6 +584,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::next);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.next();
     }
 
@@ -524,6 +594,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekToNextWindow);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToNextWindow();
     }
 
@@ -533,6 +604,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekToNextMediaItem);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToNextMediaItem();
     }
 
@@ -542,6 +614,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::seekToNext);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.seekToNext();
     }
 
@@ -551,6 +624,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPlaybackParameters(playbackParameters));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPlaybackParameters(playbackParameters);
     }
 
@@ -560,6 +634,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPlaybackSpeed(speed));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPlaybackSpeed(speed);
     }
 
@@ -568,6 +643,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (PlaybackParameters) convertToMainThreadTask(this::getPlaybackParameters);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackParameters();
         }
     }
@@ -578,6 +654,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::stop);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.stop();
     }
 
@@ -587,6 +664,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (AudioComponent) convertToMainThreadTask(this::getAudioComponent);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioComponent();
         }
     }
@@ -597,6 +675,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (VideoComponent) convertToMainThreadTask(this::getVideoComponent);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoComponent();
         }
     }
@@ -607,6 +686,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (TextComponent) convertToMainThreadTask(this::getTextComponent);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTextComponent();
         }
     }
@@ -617,6 +697,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (DeviceComponent) convertToMainThreadTask(this::getDeviceComponent);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDeviceComponent();
         }
     }
@@ -627,6 +708,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addAudioOffloadListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addAudioOffloadListener(listener);
     }
 
@@ -636,6 +718,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> removeAudioOffloadListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.removeAudioOffloadListener(listener);
     }
 
@@ -644,6 +727,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (AnalyticsCollector) convertToMainThreadTask(this::getAnalyticsCollector);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAnalyticsCollector();
         }
     }
@@ -654,6 +738,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addAnalyticsListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addAnalyticsListener(listener);
     }
 
@@ -663,6 +748,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> removeAnalyticsListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.removeAnalyticsListener(listener);
     }
 
@@ -671,6 +757,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getRendererCount);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getRendererCount();
         }
     }
@@ -680,6 +767,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(() -> getRendererType(index));
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getRendererType(index);
         }
     }
@@ -689,6 +777,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Renderer) convertToMainThreadTask(() -> getRenderer(index));
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getRenderer(index);
         }
     }
@@ -699,6 +788,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (TrackSelector) convertToMainThreadTask(this::getTrackSelector);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTrackSelector();
         }
     }
@@ -708,6 +798,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (TrackGroupArray) convertToMainThreadTask(this::getCurrentTrackGroups);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTrackGroups();
         }
     }
@@ -717,6 +808,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (TrackSelectionArray) convertToMainThreadTask(this::getCurrentTrackSelections);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTrackSelections();
         }
     }
@@ -726,6 +818,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Looper) convertToMainThreadTask(this::getPlaybackLooper);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackLooper();
         }
     }
@@ -735,6 +828,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Clock) convertToMainThreadTask(this::getClock);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getClock();
         }
     }
@@ -745,6 +839,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> prepare(mediaSource));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.prepare(mediaSource);
     }
 
@@ -754,6 +849,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> prepare(mediaSource, resetPosition, resetState));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.prepare(mediaSource, resetPosition, resetState);
     }
 
@@ -763,6 +859,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaSources(mediaSources));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaSources(mediaSources);
     }
 
@@ -772,6 +869,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaSources(mediaSources, resetPosition));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaSources(mediaSources, resetPosition);
     }
 
@@ -781,6 +879,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaSources(mediaSources, startMediaItemIndex, startPositionMs));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaSources(mediaSources, startMediaItemIndex, startPositionMs);
     }
 
@@ -790,6 +889,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaSource(mediaSource));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaSource(mediaSource);
     }
 
@@ -799,6 +899,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaSource(mediaSource, startPositionMs));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaSource(mediaSource, startPositionMs);
     }
 
@@ -808,6 +909,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaSource(mediaSource, resetPosition));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaSource(mediaSource, resetPosition);
     }
 
@@ -817,6 +919,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaSource(mediaSource));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaSource(mediaSource);
     }
 
@@ -826,6 +929,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaSource(index,mediaSource));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaSource(index, mediaSource);
     }
 
@@ -835,6 +939,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaSources(mediaSources));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaSources(mediaSources);
     }
 
@@ -844,6 +949,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaSources(index,mediaSources));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaSources(index,mediaSources);
     }
 
@@ -853,6 +959,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setShuffleOrder(shuffleOrder));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setShuffleOrder(shuffleOrder);
     }
 
@@ -862,6 +969,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPreloadConfiguration(preloadConfiguration));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPreloadConfiguration(preloadConfiguration);
     }
 
@@ -870,6 +978,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (PreloadConfiguration) convertToMainThreadTask(this::getPreloadConfiguration);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPreloadConfiguration();
         }
     }
@@ -879,6 +988,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Looper) convertToMainThreadTask(this::getApplicationLooper);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getApplicationLooper();
         }
     }
@@ -889,6 +999,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addListener(listener);
     }
 
@@ -898,6 +1009,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> removeListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.removeListener(listener);
     }
 
@@ -907,6 +1019,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaItems(mediaItems));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaItems(mediaItems);
     }
 
@@ -916,6 +1029,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaItems(mediaItems, resetPosition));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaItems(mediaItems, resetPosition);
     }
 
@@ -925,6 +1039,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaItems(mediaItems, startIndex, startPositionMs));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaItems(mediaItems, startIndex, startPositionMs);
     }
 
@@ -934,6 +1049,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaItem(mediaItem));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaItem(mediaItem);
     }
 
@@ -943,6 +1059,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaItem(mediaItem, startPositionMs));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaItem(mediaItem, startPositionMs);
     }
 
@@ -952,6 +1069,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setMediaItem(mediaItem, resetPosition));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setMediaItem(mediaItem, resetPosition);
     }
 
@@ -961,6 +1079,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaItem(mediaItem));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaItem(mediaItem);
     }
 
@@ -970,6 +1089,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaItem(index, mediaItem));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaItem(index, mediaItem);
     }
 
@@ -979,6 +1099,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaItems(mediaItems));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaItems(mediaItems);
     }
 
@@ -988,6 +1109,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> addMediaItems(index,mediaItems));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.addMediaItems(index,mediaItems);
     }
 
@@ -997,6 +1119,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> moveMediaItem(currentIndex,newIndex));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.moveMediaItem(currentIndex,newIndex);
     }
 
@@ -1006,6 +1129,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> moveMediaItems(fromIndex,toIndex,newIndex));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.moveMediaItems(fromIndex,toIndex,newIndex);
     }
 
@@ -1015,6 +1139,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> replaceMediaItem(index,mediaItem));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.replaceMediaItem(index,mediaItem);
     }
 
@@ -1024,6 +1149,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> replaceMediaItems(fromIndex,toIndex,mediaItems));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.replaceMediaItems(fromIndex,toIndex,mediaItems);
     }
 
@@ -1033,6 +1159,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> removeMediaItem(index));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.removeMediaItem(index);
     }
 
@@ -1042,6 +1169,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> removeMediaItems(fromIndex,toIndex));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.removeMediaItems(fromIndex,toIndex);
     }
 
@@ -1051,6 +1179,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::clearMediaItems);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearMediaItems();
     }
 
@@ -1059,6 +1188,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(() -> isCommandAvailable(command));
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCommandAvailable(command);
         }
     }
@@ -1068,6 +1198,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::canAdvertiseSession);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.canAdvertiseSession();
         }
     }
@@ -1077,6 +1208,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Commands) convertToMainThreadTask(this::getAvailableCommands);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAvailableCommands();
         }
     }
@@ -1087,6 +1219,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::prepare);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.prepare();
     }
 
@@ -1095,6 +1228,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPlaybackState);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackState();
         }
     }
@@ -1104,6 +1238,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPlaybackSuppressionReason);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackSuppressionReason();
         }
     }
@@ -1113,6 +1248,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isPlaying);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isPlaying();
         }
     }
@@ -1123,6 +1259,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setAudioSessionId(audioSessionId));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setAudioSessionId(audioSessionId);
     }
 
@@ -1131,6 +1268,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getAudioSessionId);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioSessionId();
         }
     }
@@ -1141,6 +1279,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setAuxEffectInfo(auxEffectInfo));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setAuxEffectInfo(auxEffectInfo);
     }
 
@@ -1150,6 +1289,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::clearAuxEffectInfo);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearAuxEffectInfo();
     }
 
@@ -1159,6 +1299,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPreferredAudioDevice(audioDeviceInfo));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPreferredAudioDevice(audioDeviceInfo);
     }
 
@@ -1168,6 +1309,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setSkipSilenceEnabled(skipSilenceEnabled));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setSkipSilenceEnabled(skipSilenceEnabled);
     }
 
@@ -1176,6 +1318,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::getSkipSilenceEnabled);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSkipSilenceEnabled();
         }
     }
@@ -1186,6 +1329,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoEffects(videoEffects));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoEffects(videoEffects);
     }
 
@@ -1195,6 +1339,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoScalingMode(videoScalingMode));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoScalingMode(videoScalingMode);
     }
 
@@ -1203,6 +1348,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getVideoScalingMode);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoScalingMode();
         }
     }
@@ -1213,6 +1359,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoChangeFrameRateStrategy(videoChangeFrameRateStrategy));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoChangeFrameRateStrategy(videoChangeFrameRateStrategy);
     }
 
@@ -1221,6 +1368,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getVideoChangeFrameRateStrategy);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoChangeFrameRateStrategy();
         }
     }
@@ -1231,6 +1379,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoFrameMetadataListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoFrameMetadataListener(listener);
     }
 
@@ -1240,6 +1389,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> clearVideoFrameMetadataListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearVideoFrameMetadataListener(listener);
     }
 
@@ -1249,6 +1399,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setCameraMotionListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setCameraMotionListener(listener);
     }
 
@@ -1258,6 +1409,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> clearCameraMotionListener(listener));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearCameraMotionListener(listener);
     }
 
@@ -1266,6 +1418,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (PlayerMessage) convertToMainThreadTask(() -> createMessage(target));
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.createMessage(target);
         }
     }
@@ -1276,6 +1429,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setSeekParameters(seekParameters));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setSeekParameters(seekParameters);
     }
 
@@ -1284,6 +1438,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (SeekParameters) convertToMainThreadTask(this::getSeekParameters);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSeekParameters();
         }
     }
@@ -1294,6 +1449,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setForegroundMode(foregroundMode));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setForegroundMode(foregroundMode);
     }
 
@@ -1303,6 +1459,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPauseAtEndOfMediaItems(pauseAtEndOfMediaItems));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPauseAtEndOfMediaItems(pauseAtEndOfMediaItems);
     }
 
@@ -1311,6 +1468,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::getPauseAtEndOfMediaItems);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPauseAtEndOfMediaItems();
         }
     }
@@ -1321,6 +1479,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Format) convertToMainThreadTask(this::getAudioFormat);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioFormat();
         }
     }
@@ -1331,6 +1490,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Format) convertToMainThreadTask(this::getVideoFormat);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoFormat();
         }
     }
@@ -1341,6 +1501,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (DecoderCounters) convertToMainThreadTask(this::getAudioDecoderCounters);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioDecoderCounters();
         }
     }
@@ -1351,6 +1512,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (DecoderCounters) convertToMainThreadTask(this::getVideoDecoderCounters);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoDecoderCounters();
         }
     }
@@ -1361,6 +1523,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setHandleAudioBecomingNoisy(handleAudioBecomingNoisy));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setHandleAudioBecomingNoisy(handleAudioBecomingNoisy);
     }
 
@@ -1370,6 +1533,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setWakeMode(wakeMode));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setWakeMode(wakeMode);
     }
 
@@ -1379,6 +1543,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPriority(priority));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPriority(priority);
     }
 
@@ -1388,6 +1553,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPriorityTaskManager(priorityTaskManager));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPriorityTaskManager(priorityTaskManager);
     }
 
@@ -1396,6 +1562,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isSleepingForOffload);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isSleepingForOffload();
         }
     }
@@ -1405,6 +1572,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isTunnelingEnabled);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isTunnelingEnabled();
         }
     }
@@ -1415,6 +1583,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::release);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.release();
     }
 
@@ -1423,6 +1592,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Tracks) convertToMainThreadTask(this::getCurrentTracks);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTracks();
         }
     }
@@ -1432,6 +1602,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (TrackSelectionParameters) convertToMainThreadTask(this::getTrackSelectionParameters);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTrackSelectionParameters();
         }
     }
@@ -1442,6 +1613,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setTrackSelectionParameters(parameters));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setTrackSelectionParameters(parameters);
     }
 
@@ -1450,6 +1622,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (MediaMetadata) convertToMainThreadTask(this::getMediaMetadata);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMediaMetadata();
         }
     }
@@ -1459,6 +1632,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (MediaMetadata) convertToMainThreadTask(this::getPlaylistMetadata);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaylistMetadata();
         }
     }
@@ -1469,6 +1643,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setPlaylistMetadata(mediaMetadata));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setPlaylistMetadata(mediaMetadata);
     }
 
@@ -1478,6 +1653,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return convertToMainThreadTask(this::getCurrentManifest);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentManifest();
         }
     }
@@ -1487,6 +1663,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Timeline) convertToMainThreadTask(this::getCurrentTimeline);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTimeline();
         }
     }
@@ -1496,6 +1673,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentPeriodIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentPeriodIndex();
         }
     }
@@ -1505,6 +1683,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentWindowIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentWindowIndex();
         }
     }
@@ -1514,6 +1693,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentMediaItemIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentMediaItemIndex();
         }
     }
@@ -1523,6 +1703,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getNextWindowIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getNextWindowIndex();
         }
     }
@@ -1532,6 +1713,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getNextMediaItemIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getNextMediaItemIndex();
         }
     }
@@ -1541,6 +1723,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPreviousWindowIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPreviousWindowIndex();
         }
     }
@@ -1550,6 +1733,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPreviousMediaItemIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPreviousMediaItemIndex();
         }
     }
@@ -1560,6 +1744,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (MediaItem) convertToMainThreadTask(this::getCurrentMediaItem);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentMediaItem();
         }
     }
@@ -1569,6 +1754,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getMediaItemCount);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMediaItemCount();
         }
     }
@@ -1578,6 +1764,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (MediaItem) convertToMainThreadTask(() -> getMediaItemAt(index));
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMediaItemAt(index);
         }
     }
@@ -1587,6 +1774,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getDuration);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDuration();
         }
     }
@@ -1596,6 +1784,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getCurrentPosition);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentPosition();
         }
     }
@@ -1605,6 +1794,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getBufferedPosition);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getBufferedPosition();
         }
     }
@@ -1614,6 +1804,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getBufferedPercentage);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getBufferedPercentage();
         }
     }
@@ -1623,6 +1814,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getTotalBufferedDuration);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTotalBufferedDuration();
         }
     }
@@ -1632,6 +1824,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentWindowDynamic);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentWindowDynamic();
         }
     }
@@ -1641,6 +1834,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentMediaItemDynamic);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentMediaItemDynamic();
         }
     }
@@ -1650,6 +1844,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentWindowLive);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentWindowLive();
         }
     }
@@ -1659,6 +1854,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentMediaItemLive);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentMediaItemLive();
         }
     }
@@ -1668,6 +1864,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getCurrentLiveOffset);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentLiveOffset();
         }
     }
@@ -1677,6 +1874,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentWindowSeekable);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentWindowSeekable();
         }
     }
@@ -1686,6 +1884,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentMediaItemSeekable);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentMediaItemSeekable();
         }
     }
@@ -1695,6 +1894,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isPlayingAd);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isPlayingAd();
         }
     }
@@ -1704,6 +1904,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentAdGroupIndex);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentAdGroupIndex();
         }
     }
@@ -1713,6 +1914,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentAdIndexInAdGroup);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentAdIndexInAdGroup();
         }
     }
@@ -1722,6 +1924,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getContentDuration);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getContentDuration();
         }
     }
@@ -1731,6 +1934,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getContentPosition);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getContentPosition();
         }
     }
@@ -1740,6 +1944,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getContentBufferedPosition);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getContentBufferedPosition();
         }
     }
@@ -1749,6 +1954,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (AudioAttributes) convertToMainThreadTask(this::getAudioAttributes);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioAttributes();
         }
     }
@@ -1759,6 +1965,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVolume(volume));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVolume(volume);
     }
 
@@ -1767,6 +1974,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (float) convertToMainThreadTask(this::getVolume);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVolume();
         }
     }
@@ -1777,6 +1985,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(this::clearVideoSurface);
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearVideoSurface();
     }
 
@@ -1786,6 +1995,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> clearVideoSurface(surface));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearVideoSurface(surface);
     }
 
@@ -1795,6 +2005,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoSurface(surface));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoSurface(surface);
     }
 
@@ -1804,6 +2015,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoSurfaceHolder(surfaceHolder));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoSurfaceHolder(surfaceHolder);
     }
 
@@ -1813,6 +2025,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> clearVideoSurfaceHolder(surfaceHolder));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearVideoSurfaceHolder(surfaceHolder);
     }
 
@@ -1822,6 +2035,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoSurfaceView(surfaceView));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoSurfaceView(surfaceView);
     }
 
@@ -1831,6 +2045,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> clearVideoSurfaceView(surfaceView));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearVideoSurfaceView(surfaceView);
     }
 
@@ -1840,6 +2055,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setVideoTextureView(textureView));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoTextureView(textureView);
     }
 
@@ -1849,6 +2065,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> clearVideoTextureView(textureView));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.clearVideoTextureView(textureView);
     }
 
@@ -1857,6 +2074,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (VideoSize) convertToMainThreadTask(this::getVideoSize);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoSize();
         }
     }
@@ -1866,6 +2084,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Size) convertToMainThreadTask(this::getSurfaceSize);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSurfaceSize();
         }
     }
@@ -1875,6 +2094,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (CueGroup) convertToMainThreadTask(this::getCurrentCues);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentCues();
         }
     }
@@ -1884,6 +2104,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (DeviceInfo) convertToMainThreadTask(this::getDeviceInfo);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDeviceInfo();
         }
     }
@@ -1893,6 +2114,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getDeviceVolume);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDeviceVolume();
         }
     }
@@ -1902,6 +2124,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isDeviceMuted);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isDeviceMuted();
         }
     }
@@ -1912,6 +2135,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setDeviceVolume(volume));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setDeviceVolume(volume);
     }
 
@@ -1921,6 +2145,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setDeviceVolume(volume,flags));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setDeviceVolume(volume,flags);
     }
 
@@ -1930,6 +2155,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> increaseDeviceVolume());
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.increaseDeviceVolume();
     }
 
@@ -1939,6 +2165,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> increaseDeviceVolume(flags));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.increaseDeviceVolume(flags);
     }
 
@@ -1948,6 +2175,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> decreaseDeviceVolume());
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.decreaseDeviceVolume();
     }
 
@@ -1957,6 +2185,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> decreaseDeviceVolume(flags));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.decreaseDeviceVolume(flags);
     }
 
@@ -1966,6 +2195,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setDeviceMuted(muted));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setDeviceMuted(muted);
     }
 
@@ -1975,6 +2205,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setDeviceMuted(muted,flags));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setDeviceMuted(muted,flags);
     }
 
@@ -1984,6 +2215,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setAudioAttributes(audioAttributes,handleAudioFocus));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setAudioAttributes(audioAttributes,handleAudioFocus);
     }
 
@@ -1992,6 +2224,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isReleased);
         }else{
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isReleased();
         }
     }
@@ -2002,6 +2235,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             mainHandler.post(() -> setImageOutput(imageOutput));
             return;
         }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setImageOutput(imageOutput);
     }
 }
