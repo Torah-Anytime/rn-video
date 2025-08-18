@@ -226,8 +226,11 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     @Override
     public void onDestroy() {
-        super.onDestroy();
-        player.release();
+        synchronized (CentralizedPlaybackManager.class) {
+            super.onDestroy();
+            instance = null;
+            player.release();
+        }
         Log.d(TAG, "CentralizedPlaybackManager destroyed");
     }
 
