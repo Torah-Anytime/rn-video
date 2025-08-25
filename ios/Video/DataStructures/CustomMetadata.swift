@@ -4,6 +4,7 @@ public struct CustomMetadata {
     let artist: String?
     let description: String?
     let imageUri: String?
+    let autoPlay: Bool?
 
     let json: NSDictionary?
 
@@ -15,6 +16,7 @@ public struct CustomMetadata {
             artist = nil
             description = nil
             imageUri = nil
+            autoPlay = nil
             return
         }
 
@@ -24,5 +26,6 @@ public struct CustomMetadata {
         artist = json["artist"] as? String ?? ""
         description = json["description"] as? String ?? ""
         imageUri = json["imageUri"] as? String ?? ""
+        autoPlay = json["autoPlay"] as? Bool ?? false
     }
 }

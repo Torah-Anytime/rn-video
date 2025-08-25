@@ -79,6 +79,7 @@ RCT_EXTERN_METHOD(setFullScreenCmd : (nonnull NSNumber*)reactTag fullscreen : (n
 RCT_EXTERN_METHOD(enterPictureInPictureCmd : (nonnull NSNumber*)reactTag)
 RCT_EXTERN_METHOD(exitPictureInPictureCmd : (nonnull NSNumber*)reactTag)
 RCT_EXTERN_METHOD(setSourceCmd : (nonnull NSNumber*)reactTag source : (NSDictionary*)source)
+RCT_EXTERN_METHOD(setQueueCmd : (nonnull NSNumber*)reactTag queue : (NSArray*)queue)
 
 RCT_EXTERN_METHOD(save
                   : (nonnull NSNumber*)reactTag options

@@ -3,28 +3,28 @@ import MediaPlayer
 
 class NowPlayingInfoCenterManager {
     static let shared = NowPlayingInfoCenterManager()
-
-    private let SEEK_INTERVAL_SECONDS: Double = 10
-
+    
+    // MARK: - Properties
     private weak var currentPlayer: AVPlayer?
     private var players = NSHashTable<AVPlayer>.weakObjects()
-
+    private weak var currentVideoView: RCTVideo?
+    
     private var observers: [Int: NSKeyValueObservation] = [:]
     private var playbackObserver: Any?
-
-    private var playTarget: Any?
-    private var pauseTarget: Any?
-    private var previousTrackTarget: Any?
-    private var nextTrackTarget: Any?
-    private var playbackPositionTarget: Any?
-    private var seekTarget: Any?
-    private var togglePlayPauseTarget: Any?
-
+    
+    // Remote command targets
+    private var commandTargets: [Any?] = []
     private let remoteCommandCenter = MPRemoteCommandCenter.shared()
-
-    var receivingRemoveControlEvents = false {
+    
+    // Debouncing properties
+    private var lastUpdateTime: CFTimeInterval = 0
+    private var lastRegistrationTime: CFTimeInterval = 0
+    private var updateTimer: Timer?
+    private let timerQueue = DispatchQueue(label: "com.reactnativevideo.nowplaying.timer", qos: .utility)
+    
+    var receivingRemoteControlEvents = false {
         didSet {
-            if receivingRemoveControlEvents {
+            if receivingRemoteControlEvents {
                 AudioSessionManager.shared.setRemoteControlEventsActive(true)
                 UIApplication.shared.beginReceivingRemoteControlEvents()
             } else {
@@ -33,252 +33,410 @@ class NowPlayingInfoCenterManager {
             }
         }
     }
-
+    
     deinit {
         cleanup()
     }
-
-    func registerPlayer(player: AVPlayer) {
-        if players.contains(player) {
+    
+    // MARK: - Player Management
+    func registerPlayer(player: AVPlayer, videoView: RCTVideo? = nil) {
+        let currentTime = CACurrentMediaTime()
+        let isQueueTransition = videoView?._isQueueMode == true && currentPlayer == player
+        let debounceTime: CFTimeInterval = isQueueTransition ? 0.3 : (videoView?._isQueueMode == true ? 1.0 : 0.3)
+        
+        // Skip registration if too frequent
+        if currentTime - lastRegistrationTime < debounceTime {
+            // Update video view reference for metadata updates even if registration is skipped
+            if currentVideoView !== videoView {
+                currentVideoView = videoView
+                debouncedUpdateNowPlayingInfo()
+            }
             return
         }
-
-        if receivingRemoveControlEvents == false {
-            receivingRemoveControlEvents = true
+        
+        lastRegistrationTime = currentTime
+        let videoViewChanged = currentVideoView !== videoView
+        currentVideoView = videoView
+        
+        // Handle same player with metadata changes
+        if currentPlayer == player && players.contains(player) {
+            if videoViewChanged || isQueueTransition {
+                debouncedUpdateNowPlayingInfo()
+            }
+            return
         }
-
-        if let oldObserver = observers[player.hashValue] {
-            oldObserver.invalidate()
-        }
-
-        observers[player.hashValue] = observePlayers(player: player)
+        
+        // Full registration for new players
+        enableRemoteControlEvents()
+        setupPlayerObserver(player)
         players.add(player)
-
-        if currentPlayer == nil {
-            setCurrentPlayer(player: player)
+        
+        if currentPlayer == nil || player.rate > 0 {
+            setCurrentPlayer(player: player, videoView: videoView)
         }
     }
-
+    
     func removePlayer(player: AVPlayer) {
-        if !players.contains(player) {
-            return
-        }
-
-        if let observer = observers[player.hashValue] {
-            observer.invalidate()
-        }
-
-        observers.removeValue(forKey: player.hashValue)
+        guard players.contains(player) else { return }
+        
+        removePlayerObserver(player)
         players.remove(player)
-
+        
         if currentPlayer == player {
             currentPlayer = nil
-            updateNowPlayingInfo()
+            currentVideoView = nil
+            debouncedUpdateNowPlayingInfo()
         }
-
+        
         if players.allObjects.isEmpty {
             cleanup()
         }
     }
-
+    
+    // MARK: - Cleanup
     public func cleanup() {
-        observers.removeAll()
-        players.removeAllObjects()
-
-        if let playbackObserver {
-            currentPlayer?.removeTimeObserver(playbackObserver)
-        }
-
+        cleanupTimer()
+        cleanupPlayersAndObservers()
         invalidateCommandTargets()
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [:]
-        receivingRemoveControlEvents = false
+        clearNowPlayingInfo()
+        receivingRemoteControlEvents = false
+        currentVideoView = nil
     }
-
-    private func setCurrentPlayer(player: AVPlayer) {
-        if player == currentPlayer {
-            return
+    
+    private func cleanupTimer() {
+        timerQueue.async { [weak self] in
+            self?.updateTimer?.invalidate()
+            self?.updateTimer = nil
         }
-
-        if let playbackObserver {
-            currentPlayer?.removeTimeObserver(playbackObserver)
+    }
+    
+    private func cleanupPlayersAndObservers() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.observers.removeAll()
+            self.players.removeAllObjects()
+            
+            if let playbackObserver = self.playbackObserver {
+                self.currentPlayer?.removeTimeObserver(playbackObserver)
+                self.playbackObserver = nil
+            }
         }
-
+    }
+    
+    // MARK: - Private Player Management
+    private func setCurrentPlayer(player: AVPlayer, videoView: RCTVideo? = nil) {
+        guard player != currentPlayer || currentVideoView !== videoView else { return }
+        
+        removePlaybackObserver()
         currentPlayer = player
+        currentVideoView = videoView
+        
         registerCommandTargets()
-
-        updateNowPlayingInfo()
+        debouncedUpdateNowPlayingInfo()
+        setupPlaybackObserver(player)
+    }
+    
+    private func enableRemoteControlEvents() {
+        if !receivingRemoteControlEvents {
+            receivingRemoteControlEvents = true
+        }
+    }
+    
+    private func setupPlayerObserver(_ player: AVPlayer) {
+        if let oldObserver = observers[player.hashValue] {
+            oldObserver.invalidate()
+        }
+        observers[player.hashValue] = observePlayerRate(player)
+    }
+    
+    private func removePlayerObserver(_ player: AVPlayer) {
+        observers[player.hashValue]?.invalidate()
+        observers.removeValue(forKey: player.hashValue)
+    }
+    
+    private func setupPlaybackObserver(_ player: AVPlayer) {
         playbackObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(value: 1, timescale: 4),
+            forInterval: CMTime(value: 1, timescale: 2),
             queue: .global(),
             using: { [weak self] _ in
-                self?.updateNowPlayingInfo()
+                self?.debouncedUpdateNowPlayingInfo()
             }
         )
     }
-
+    
+    private func removePlaybackObserver() {
+        if let observer = playbackObserver {
+            currentPlayer?.removeTimeObserver(observer)
+            playbackObserver = nil
+        }
+    }
+    
+    // MARK: - Command Registration
     private func registerCommandTargets() {
         invalidateCommandTargets()
-
-        playTarget = remoteCommandCenter.playCommand.addTarget { [weak self] _ in
-            guard let self, let player = self.currentPlayer else {
+        
+        let commands = [
+            (remoteCommandCenter.playCommand, createPlayTarget()),
+            (remoteCommandCenter.pauseCommand, createPauseTarget()),
+            (remoteCommandCenter.previousTrackCommand, createPreviousTrackTarget()),
+            (remoteCommandCenter.nextTrackCommand, createNextTrackTarget()),
+            (remoteCommandCenter.changePlaybackPositionCommand, createPlaybackPositionTarget()),
+            (remoteCommandCenter.togglePlayPauseCommand, createTogglePlayPauseTarget())
+        ]
+        
+        commandTargets = commands.map { command, target in
+            command.addTarget(handler: target)
+        }
+        
+        enableRemoteCommands()
+    }
+    
+    private func enableRemoteCommands() {
+        remoteCommandCenter.playCommand.isEnabled = true
+        remoteCommandCenter.pauseCommand.isEnabled = true
+        remoteCommandCenter.nextTrackCommand.isEnabled = true
+        remoteCommandCenter.previousTrackCommand.isEnabled = true
+        remoteCommandCenter.changePlaybackPositionCommand.isEnabled = true
+        remoteCommandCenter.togglePlayPauseCommand.isEnabled = true
+    }
+    
+    private func invalidateCommandTargets() {
+        let commands = [
+            remoteCommandCenter.playCommand,
+            remoteCommandCenter.pauseCommand,
+            remoteCommandCenter.nextTrackCommand,
+            remoteCommandCenter.previousTrackCommand,
+            remoteCommandCenter.changePlaybackPositionCommand,
+            remoteCommandCenter.togglePlayPauseCommand
+        ]
+        
+        for (command, target) in zip(commands, commandTargets) {
+            command.removeTarget(target)
+        }
+        commandTargets.removeAll()
+        
+        if !receivingRemoteControlEvents {
+            commands.forEach { $0.isEnabled = false }
+        }
+    }
+    
+    // MARK: - Command Target Factories
+    private func createPlayTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        return { [weak self] _ in
+            guard let player = self?.currentPlayer, player.rate == 0 else {
                 return .commandFailed
             }
-
-            if player.rate == 0 {
-                player.play()
-            }
-
+            player.play()
+            self?.updateNowPlayingInfo()
             return .success
         }
-
-        pauseTarget = remoteCommandCenter.pauseCommand.addTarget { [weak self] _ in
-            guard let self, let player = self.currentPlayer else {
+    }
+    
+    private func createPauseTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        return { [weak self] _ in
+            guard let player = self?.currentPlayer, player.rate != 0 else {
                 return .commandFailed
             }
-
-            if player.rate != 0 {
-                player.pause()
-            }
-
+            player.pause()
+            self?.updateNowPlayingInfo()
             return .success
         }
-
-        previousTrackTarget = remoteCommandCenter.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self else {
-                return .commandFailed
+    }
+    
+    private func createPreviousTrackTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        return { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            
+            if let videoView = self.currentVideoView, videoView._isQueueMode {
+                DispatchQueue.main.async {
+                    videoView.handlePreviousTrack()
+                }
+            } else {
+                NotificationCenter.default.post(name: NSNotification.Name("RCTVideo.previousTrack"), object: nil)
             }
-            // Send notification to React Native
-            NotificationCenter.default.post(name: NSNotification.Name("RCTVideo.previousTrack"), object: nil)
+            
             return .success
         }
-
-        nextTrackTarget = remoteCommandCenter.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self else {
-                return .commandFailed
+    }
+    
+    private func createNextTrackTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        return { [weak self] _ in
+            guard let self = self else { return .commandFailed }
+            
+            if let videoView = self.currentVideoView, videoView._isQueueMode {
+                DispatchQueue.main.async {
+                    videoView.handleNextTrack()
+                }
+            } else {
+                NotificationCenter.default.post(name: NSNotification.Name("RCTVideo.nextTrack"), object: nil)
             }
-            // Send notification to React Native
-            NotificationCenter.default.post(name: NSNotification.Name("RCTVideo.nextTrack"), object: nil)
+            
             return .success
         }
-
-        playbackPositionTarget = remoteCommandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let self, let player = self.currentPlayer else {
+    }
+    
+    private func createPlaybackPositionTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        return { [weak self] event in
+            guard let self = self,
+                  let player = self.currentPlayer,
+                  let positionEvent = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }
-            if let event = event as? MPChangePlaybackPositionCommandEvent {
-                player.seek(to: CMTime(seconds: event.positionTime, preferredTimescale: .max))
-                return .success
-            }
-            return .commandFailed
+            
+            let time = CMTime(seconds: positionEvent.positionTime, preferredTimescale: CMTimeScale.max)
+            player.seek(to: time, completionHandler: { _ in
+                self.updateNowPlayingInfo()
+            })
+            return .success
         }
-
-        // Handler for togglePlayPauseCommand, sent by Apple's Earpods wired headphones
-        togglePlayPauseTarget = remoteCommandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self, let player = self.currentPlayer else {
+    }
+    
+    private func createTogglePlayPauseTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
+        return { [weak self] _ in
+            guard let player = self?.currentPlayer else {
                 return .commandFailed
             }
-
+            
             if player.rate == 0 {
                 player.play()
             } else {
                 player.pause()
             }
-
+            
+            self?.updateNowPlayingInfo()
             return .success
         }
     }
-
-    private func invalidateCommandTargets() {
-        remoteCommandCenter.playCommand.removeTarget(playTarget)
-        remoteCommandCenter.pauseCommand.removeTarget(pauseTarget)
-        remoteCommandCenter.nextTrackCommand.removeTarget(nextTrackTarget)
-        remoteCommandCenter.previousTrackCommand.removeTarget(previousTrackTarget)
-        remoteCommandCenter.changePlaybackPositionCommand.removeTarget(playbackPositionTarget)
-        remoteCommandCenter.togglePlayPauseCommand.removeTarget(togglePlayPauseTarget)
+    
+    // MARK: - Now Playing Info Updates
+    private func debouncedUpdateNowPlayingInfo() {
+        timerQueue.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.updateTimer?.invalidate()
+            self.updateTimer = nil
+            
+            let delay = self.currentVideoView?._isQueueMode == true ? 0.5 : 0.3
+            
+            self.updateTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.updateNowPlayingInfo()
+                }
+            }
+        }
     }
-
+    
     public func updateNowPlayingInfo() {
-        guard let player = currentPlayer, let currentItem = player.currentItem else {
-            invalidateCommandTargets()
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = [:]
+        let currentTime = CACurrentMediaTime()
+        
+        // Throttle updates to max 3 times per second
+        guard currentTime - lastUpdateTime >= 0.33 else { return }
+        lastUpdateTime = currentTime
+        
+        guard let player = currentPlayer,
+              let currentItem = player.currentItem,
+              currentItem.status == .readyToPlay else {
+            clearNowPlayingInfo()
             return
         }
-
-        // commonMetadata is metadata from asset, externalMetadata is custom metadata set by user
-        // externalMetadata should override commonMetadata to allow override metadata from source
-        // When the metadata has the tag "iTunSMPB" or "iTunNORM" then the metadata is not converted correctly and comes [nil, nil, ...]
-        // This leads to a crash of the app
-        let metadata: [AVMetadataItem] = {
-            func processMetadataItems(_ items: [AVMetadataItem]) -> [String: AVMetadataItem] {
-                var result = [String: AVMetadataItem]()
-
-                for item in items {
-                    if let id = item.identifier?.rawValue, !id.isEmpty, result[id] == nil {
-                        result[id] = item
-                    }
-                }
-
-                return result
-            }
-
-            let common = processMetadataItems(currentItem.asset.commonMetadata)
-            let external = processMetadataItems(currentItem.externalMetadata)
-
-            return Array(common.merging(external) { _, new in new }.values)
-        }()
-
-        let titleItem = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierTitle).first?.stringValue ?? ""
-
-        let artistItem = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierArtist).first?.stringValue ?? ""
-
-        // I have some issue with this - setting artworkItem when it not set dont return nil but also is crashing application
-        // this is very hacky workaround for it
-        let imgData = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierArtwork).first?.dataValue
-        let image = imgData.flatMap { UIImage(data: $0) } ?? UIImage()
-        let artworkItem = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-
+        
+        let metadata = extractMetadata(from: currentItem)
+        let title = extractTitle(from: metadata)
+        let artist = extractArtist(from: metadata)
+        let artwork = extractArtwork(from: metadata)
+        
+        let duration = currentItem.duration.seconds
+        let currentTimeSeconds = currentItem.currentTime().seconds
+        
         let newNowPlayingInfo: [String: Any] = [
-            MPMediaItemPropertyTitle: titleItem,
-            MPMediaItemPropertyArtist: artistItem,
-            MPMediaItemPropertyArtwork: artworkItem,
-            MPMediaItemPropertyPlaybackDuration: currentItem.duration.seconds,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentItem.currentTime().seconds.rounded(),
+            MPMediaItemPropertyTitle: title,
+            MPMediaItemPropertyArtist: artist,
+            MPMediaItemPropertyArtwork: artwork,
+            MPMediaItemPropertyPlaybackDuration: duration.isFinite ? duration : 0,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTimeSeconds.isFinite ? currentTimeSeconds.rounded() : 0,
             MPNowPlayingInfoPropertyPlaybackRate: player.rate,
-            MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration),
+            MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration)
         ]
-        let currentNowPlayingInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = currentNowPlayingInfo.merging(newNowPlayingInfo) { _, new in new }
+        
+        updateNowPlayingInfoIfNeeded(newInfo: newNowPlayingInfo, title: title, artist: artist)
     }
-
+    
+    // MARK: - Metadata Extraction
+    private func extractMetadata(from item: AVPlayerItem) -> [AVMetadataItem] {
+        let commonItems = processMetadataItems(item.asset.commonMetadata)
+        let externalItems = processMetadataItems(item.externalMetadata)
+        
+        return Array(commonItems.merging(externalItems) { _, new in new }.values)
+    }
+    
+    private func processMetadataItems(_ items: [AVMetadataItem]) -> [String: AVMetadataItem] {
+        var result = [String: AVMetadataItem]()
+        
+        for item in items {
+            guard let id = item.identifier?.rawValue,
+                  !id.isEmpty,
+                  result[id] == nil,
+                  !id.contains("iTunSMPB"),
+                  !id.contains("iTunNORM") else {
+                continue
+            }
+            result[id] = item
+        }
+        
+        return result
+    }
+    
+    private func extractTitle(from metadata: [AVMetadataItem]) -> String {
+        return AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierTitle)
+            .first?.stringValue ?? "Unknown Title"
+    }
+    
+    private func extractArtist(from metadata: [AVMetadataItem]) -> String {
+        return AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierArtist)
+            .first?.stringValue ?? "Unknown Artist"
+    }
+    
+    private func extractArtwork(from metadata: [AVMetadataItem]) -> MPMediaItemArtwork {
+        if let imageData = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierArtwork)
+            .first?.dataValue,
+           let image = UIImage(data: imageData) {
+            return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        } else {
+            let defaultImage = UIImage(systemName: "music.note") ?? UIImage()
+            return MPMediaItemArtwork(boundsSize: defaultImage.size) { _ in defaultImage }
+        }
+    }
+    
+    private func updateNowPlayingInfoIfNeeded(newInfo: [String: Any], title: String, artist: String) {
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = newInfo
+    }
+    
+    private func clearNowPlayingInfo() {
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [:]
+    }
+    
+    // MARK: - Player Observation
     private func findNewCurrentPlayer() {
-        if let newPlayer = players.allObjects.first(where: {
-            $0.rate != 0
-        }) {
+        if let newPlayer = players.allObjects.first(where: { $0.rate != 0 }) {
             setCurrentPlayer(player: newPlayer)
         }
     }
-
-    // We will observe players rate to find last active player that info will be displayed
-    private func observePlayers(player: AVPlayer) -> NSKeyValueObservation {
-        return player.observe(\.rate) { [weak self] player, change in
-            guard let self else { return }
-
-            let rate = change.newValue
-
-            // case where there is new player that is not paused
-            // In this case event is triggered by non currentPlayer
-            if rate != 0 && self.currentPlayer != player {
-                self.setCurrentPlayer(player: player)
+    
+    private func observePlayerRate(_ player: AVPlayer) -> NSKeyValueObservation {
+        return player.observe(\.rate) { [weak self] observedPlayer, change in
+            guard let self = self, let rate = change.newValue else { return }
+            
+            if rate != 0 && self.currentPlayer != observedPlayer {
+                self.setCurrentPlayer(player: observedPlayer)
                 return
             }
-
-            // case where currentPlayer was paused
-            // In this case event is triggeret by currentPlayer
-            if rate == 0 && self.currentPlayer == player {
+            
+            if rate == 0 && self.currentPlayer == observedPlayer {
                 self.findNewCurrentPlayer()
             }
+            
+            self.debouncedUpdateNowPlayingInfo()
         }
     }
 }
