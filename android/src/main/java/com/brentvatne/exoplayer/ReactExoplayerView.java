@@ -531,7 +531,11 @@ public class ReactExoplayerView extends FrameLayout implements
                 //Remove this eventListener once its executed. since UI will work fine once after the reLayout is done
                 new Handler(Looper.getMainLooper()).post(() -> {
                     Log.d(TAG, "Removing listener " + eventListener + " from " + player);
-                    player.removeListener(this);
+                    if(player != null){
+                        player.removeListener(this);
+                    }else{
+                        Log.e(TAG,"Failed to remove listener from null player");
+                    }
                 });
             }
 
@@ -541,7 +545,11 @@ public class ReactExoplayerView extends FrameLayout implements
                 //Remove this eventListener once its executed. since UI will work fine once after the reLayout is done
                 new Handler(Looper.getMainLooper()).post(() -> {
                     Log.d(TAG, "Removing listener " + eventListener + " from " + player);
-                    player.removeListener(this);
+                    if(player != null){
+                        player.removeListener(this);
+                    }else{
+                        Log.e(TAG,"Failed to remove listener from null player");
+                    }
                 });
             }
         };
