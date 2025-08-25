@@ -529,16 +529,23 @@ public class ReactExoplayerView extends FrameLayout implements
 
                 reLayout(playPauseControlContainer);
                 //Remove this eventListener once its executed. since UI will work fine once after the reLayout is done
-                player.removeListener(eventListener);
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    Log.d(TAG, "Removing listener " + eventListener + " from " + player);
+                    player.removeListener(this);
+                });
             }
 
             @Override
             public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
                 reLayout(playPauseControlContainer);
                 //Remove this eventListener once its executed. since UI will work fine once after the reLayout is done
-                player.removeListener(eventListener);
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    Log.d(TAG, "Removing listener " + eventListener + " from " + player);
+                    player.removeListener(this);
+                });
             }
         };
+        Log.d(TAG,"Adding listener to player " + player + " on eventListener " + eventListener);
         player.addListener(eventListener);
     }
     private void openSettings() {
