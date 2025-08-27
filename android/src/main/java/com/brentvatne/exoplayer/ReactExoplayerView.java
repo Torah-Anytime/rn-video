@@ -919,7 +919,6 @@ public class ReactExoplayerView extends FrameLayout implements
         Log.d(TAG, "Switched player to CPM from REV " + this);
         player = cpmConnection.getInstance();
 
-
         //Old stuff
         ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
         refreshDebugState();
@@ -1353,7 +1352,6 @@ public class ReactExoplayerView extends FrameLayout implements
             }
 
             updateResumePosition();
-            //player.release();
             player.removeListener(this);
             PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
             if (pipListenerUnsubscribe != null) {
