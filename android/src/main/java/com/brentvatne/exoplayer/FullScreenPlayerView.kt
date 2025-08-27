@@ -42,7 +42,7 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
         }
     }
 
-    private val oldPlayerListener = object : Player.Listener {
+    private val originalPlayerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             super.onMediaItemTransition(mediaItem, reason)
             if (player != null && mediaItem != null) {
@@ -169,7 +169,7 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
             })
 
             // Add the old player listener to the new player to check for null
-            originalPlayer.addListener(oldPlayerListener)
+            originalPlayer.addListener(originalPlayerListener)
 
             // Set playback state to match original after a delay to ensure proper setup
             mainHandler.postDelayed({
@@ -307,7 +307,7 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
 
         // Stop listening to the reactExoplayerView's player
         val originalPlayer = reactExoplayerView?.player as? ExoPlayer
-        originalPlayer?.removeListener(oldPlayerListener)
+        originalPlayer?.removeListener(originalPlayerListener)
 
         // Release our fullscreen player
         player?.release()

@@ -919,24 +919,28 @@ public class ReactExoplayerView extends FrameLayout implements
         Log.d(TAG, "Switched player to CPM from REV " + this);
         player = cpmConnection.getInstance();
 
-        //Old stuff
-        ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
-        refreshDebugState();
-        player.addListener(self);
-        player.setVolume(muted ? 0.f : audioVolume * 1);
-        exoPlayerView.setPlayer(player);
+        try {
+            //Old stuff
+            ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
+            refreshDebugState();
+            player.addListener(self);
+            player.setVolume(muted ? 0.f : audioVolume * 1);
+            exoPlayerView.setPlayer(player);
 
-        audioBecomingNoisyReceiver.setListener(self);
-        pictureInPictureReceiver.setListener();
-        bandwidthMeter.addEventListener(new Handler(), self);
-        setPlayWhenReady(!isPaused);
-        playerNeedsSource = true;
+            audioBecomingNoisyReceiver.setListener(self);
+            pictureInPictureReceiver.setListener();
+            bandwidthMeter.addEventListener(new Handler(), self);
+            setPlayWhenReady(!isPaused);
+            playerNeedsSource = true;
 
-        PlaybackParameters params = new PlaybackParameters(rate, 1f);
-        player.setPlaybackParameters(params);
+            PlaybackParameters params = new PlaybackParameters(rate, 1f);
+            player.setPlaybackParameters(params);
 
-        if (showNotificationControls) {
-            setupPlaybackService();
+            if (showNotificationControls) {
+                setupPlaybackService();
+            }
+        }catch (NullPointerException e){
+            Log.w(TAG, "NullPointerException thrown in postInitializePlayerCore, player is " + player);
         }
     }
 
