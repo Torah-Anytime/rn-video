@@ -34,7 +34,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     private var _repeat = false
     private var _isPlaying = false
     private var _playbackStalled = false
-    private var _userExplicitlyPaused = false
     private var _isBuffering = false {
         didSet {
             onVideoBuffer?([
@@ -63,12 +62,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
     private var nowPlayingUpdateTimer: Timer?
     private var isNowPlayingRegistered = false
-
-    private func resetUserPause() {
-        if !_isQueueMode {
-            _userExplicitlyPaused = false
-        }
-    }
 
     private var _resizeMode: String = "cover"
     private var _fullscreen = false
@@ -683,15 +676,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     private func restorePlayerToViews() {
         _playerLayer?.player = _player
         _playerViewController?.player = _player
-
-        if _userExplicitlyPaused {
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self._player?.pause()
-                self._player?.rate = 0.0
-                self._paused = true
-            }
-        }
     }
 
     @objc func audioRouteChanged(notification: NSNotification!) {
@@ -831,8 +815,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
                 }
             }
 
-            self.resetUserPause()
-
             if !self._isQueueMode {
                 self.removePlayerLayer()
                 self._playerObserver.player = nil
@@ -841,7 +823,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
             }
 
             RCTVideoUtils.delay { [weak self] in
-                self?.prepareAndSetupPlayer()
+                await self?.prepareAndSetupPlayer()
             }
 
             self._videoLoadStarted = true
@@ -1004,16 +986,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     func setupPlayer(playerItem: AVPlayerItem) async throws {
         guard isSetSourceOngoing else { return }
 
-        let wasPlayingBeforeTransition = !_paused && _isPlaying
-        let isBackgroundMode = UIApplication.shared.applicationState != .active
-        let shouldMaintainPlayback =
-            _isQueueMode && _playInBackground && wasPlayingBeforeTransition
-            && !_userExplicitlyPaused
-
-        if !shouldMaintainPlayback {
-            _player?.pause()
-        }
-
         configurePlayerItem(playerItem)
 
         if _player == nil {
@@ -1023,19 +995,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         }
 
         finalizePlayerSetup()
-
-        if shouldMaintainPlayback {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                [weak self] in
-                guard let self = self else { return }
-
-                self._player?.play()
-                self._player?.rate = self._rate
-                self._paused = false
-
-                self.configureAudioSession()
-            }
-        }
     }
 
     private func configurePlayerItem(_ playerItem: AVPlayerItem) {
@@ -1123,22 +1082,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     ) {
 
         if context == &playerContext {
-            if keyPath == #keyPath(AVPlayer.rate) {
-                guard let player = object as? AVPlayer,
-                    let change = change,
-                    let newRate = change[.newKey] as? Float,
-                    let oldRate = change[.oldKey] as? Float
-                else { return }
-
-                if newRate > 0 && oldRate == 0 && _userExplicitlyPaused {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self = self else { return }
-                        self._player?.pause()
-                        self._player?.rate = 0.0
-                        self._paused = true
-                    }
-                }
-            }
+            return
         } else {
             super.observeValue(
                 forKeyPath: keyPath,
@@ -1309,7 +1253,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     }
 
     @objc func setPaused(_ paused: Bool) {
-        _userExplicitlyPaused = paused
 
         if paused {
             handlePause()
@@ -2389,16 +2332,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         _isPlaying = isPlaying
 
         if _controls {
-            let wasPreviouslyPlaying = change.oldValue == .playing
-            let isNowPaused = player.timeControlStatus == .paused
-
-            if wasPreviouslyPlaying && isNowPaused && !_audioSessionInterrupted
-            {
-                _userExplicitlyPaused = true
-            } else if !isNowPaused {
-                _userExplicitlyPaused = false
-            }
-
             _paused = !isPlaying
         }
 
