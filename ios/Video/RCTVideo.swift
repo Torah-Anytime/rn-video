@@ -412,11 +412,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
         if _player?.currentItem != nil && _player?.rate ?? 0 > 0 {
             _currentQueueIndex = -1
-        } else {
-            _currentQueueIndex = 0
-            if let firstSource = queue.first {
-                setSrc(firstSource)
-            }
         }
     }
 
@@ -636,23 +631,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         }
 
         let isExternalPlaybackActive = getIsExternalPlaybackActive()
-
-        if _playInBackground && _isQueueMode && !isExternalPlaybackActive
-            && !isPictureInPictureActive()
-        {
-            configureAudioSession()
-            _player?.play()
-            _player?.rate = _rate
-            scheduleNowPlayingUpdate()
-            return
-        }
-
         if !_playInBackground || isExternalPlaybackActive
             || isPictureInPictureActive()
         {
             return
         }
-
+        configureAudioSession()
+        scheduleNowPlayingUpdate()
+        // Needed to play sound in background. See https://developer.apple.com/library/ios/qa/qa1668/_index.html
         clearPlayerFromViews()
     }
 
@@ -818,6 +804,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
         isSetSourceOngoing = true
         initializeSource(source)
+
     }
 
     private func handlePendingSource(_ source: NSDictionary!) {
