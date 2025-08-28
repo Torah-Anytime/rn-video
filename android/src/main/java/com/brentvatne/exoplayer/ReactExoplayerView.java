@@ -826,7 +826,8 @@ public class ReactExoplayerView extends FrameLayout implements
             player.getMainHandler().post(() -> {
                 Log.d(TAG, "Running Player Post-Initialization");
 
-                postInitializePlayerCore(self);
+                boolean postInitSucessful = postInitializePlayerCore(self);
+                if(!postInitSucessful) return;
 
                 // Create source (and DRM) if needed
                 if (playerNeedsSource) {
@@ -915,33 +916,34 @@ public class ReactExoplayerView extends FrameLayout implements
         establishPlayerConnection();
     }
 
-    private void postInitializePlayerCore(ReactExoplayerView self){
+    /**
+     * @return true if post-initializtion was succesful, false if not
+     */
+    private boolean postInitializePlayerCore(ReactExoplayerView self){
         Log.d(TAG, "Switched player to CPM from REV " + this);
         player = cpmConnection.getInstance();
+        if(player == null) return false;
 
-        try {
-            //Old stuff
-            ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
-            refreshDebugState();
-            player.addListener(self);
-            player.setVolume(muted ? 0.f : audioVolume * 1);
-            exoPlayerView.setPlayer(player);
+        //Old stuff
+        ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
+        refreshDebugState();
+        player.addListener(self);
+        player.setVolume(muted ? 0.f : audioVolume * 1);
+        exoPlayerView.setPlayer(player);
 
-            audioBecomingNoisyReceiver.setListener(self);
-            pictureInPictureReceiver.setListener();
-            bandwidthMeter.addEventListener(new Handler(), self);
-            setPlayWhenReady(!isPaused);
-            playerNeedsSource = true;
+        audioBecomingNoisyReceiver.setListener(self);
+        pictureInPictureReceiver.setListener();
+        bandwidthMeter.addEventListener(new Handler(), self);
+        setPlayWhenReady(!isPaused);
+        playerNeedsSource = true;
 
-            PlaybackParameters params = new PlaybackParameters(rate, 1f);
-            player.setPlaybackParameters(params);
+        PlaybackParameters params = new PlaybackParameters(rate, 1f);
+        player.setPlaybackParameters(params);
 
-            if (showNotificationControls) {
-                setupPlaybackService();
-            }
-        }catch (NullPointerException e){
-            Log.w(TAG, "NullPointerException thrown in postInitializePlayerCore, player is " + player);
+        if (showNotificationControls) {
+            setupPlaybackService();
         }
+        return true;
     }
 
     /**
@@ -2111,6 +2113,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setSrc(Source source) {
         if (source.getUri() != null) {
+            Log.i(TAG,"Source updated to new source with ID " + source.getMetadata().getId().toString());
             clearResumePosition();
             boolean isSourceEqual = source.isEquals(this.source);
             hasDrmFailed = false;
