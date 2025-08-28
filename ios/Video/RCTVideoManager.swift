@@ -93,6 +93,13 @@ class RCTVideoManager: RCTViewManager {
         })
     }
 
+    @objc(setQueueCmd:queue:)
+    func setQueueCmd(_ reactTag: NSNumber, queue: NSArray) {
+        performOnVideoView(withReactTag: reactTag, callback: { videoView in
+            videoView?.setQueue(queue)
+        })
+    }
+
     @objc(save:options:resolve:reject:)
     func save(_ reactTag: NSNumber, options: NSDictionary, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
         performOnVideoView(withReactTag: reactTag, callback: { videoView in

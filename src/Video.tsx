@@ -406,6 +406,16 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
       [sourceToUnternalSource],
     );
 
+    const setQueue = useCallback(
+      (_queue?: Array<ReactVideoSource>) => {
+        return NativeVideoManager.setQueueCmd(
+          getReactTag(nativeRef),
+          _queue?.map(sourceToUnternalSource),
+        );
+      },
+      [sourceToUnternalSource],
+    );
+
     const presentFullscreenPlayer = useCallback(
       () => setFullScreen(true),
       [setFullScreen],
@@ -715,6 +725,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
         enterPictureInPicture,
         exitPictureInPicture,
         setSource,
+        setQueue,
       }),
       [
         seek,
@@ -730,6 +741,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
         enterPictureInPicture,
         exitPictureInPicture,
         setSource,
+        setQueue
       ],
     );
 
