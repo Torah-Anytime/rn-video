@@ -90,7 +90,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private final static boolean logAllMethodCalls = false;
 
 
-
     //===== Initialization =====
 
     public CentralizedPlaybackManager(){

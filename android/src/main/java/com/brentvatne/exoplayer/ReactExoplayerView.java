@@ -1041,13 +1041,18 @@ public class ReactExoplayerView extends FrameLayout implements
         }
 
         boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
-        if (haveResumePosition) {
-            player.seekTo(resumeWindow, resumePosition);
-            player.setMediaSource(mediaSource, false);
-        } else if (runningSource.getStartPositionMs() > 0) {
-            player.setMediaSource(mediaSource, runningSource.getStartPositionMs());
-        } else {
-            player.setMediaSource(mediaSource, true);
+
+        //Special check which is specific to our code
+        //FIXME there's probably a better way to ensure that if two lectures have the same id, the lecture is not updated
+        if(player.getCurrentMediaItem() == null || !player.getCurrentMediaItem().mediaId.endsWith("/" +  runningSource.getMetadata().getId())) {
+            if (haveResumePosition) {
+                player.seekTo(resumeWindow, resumePosition);
+                player.setMediaSource(mediaSource, false);
+            } else if (runningSource.getStartPositionMs() > 0) {
+                player.setMediaSource(mediaSource, runningSource.getStartPositionMs());
+            } else {
+                player.setMediaSource(mediaSource, true);
+            }
         }
         player.prepare();
         playerNeedsSource = false;

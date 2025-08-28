@@ -216,7 +216,6 @@ class Source {
         /** parse the source ReadableMap received from app */
         @JvmStatic
         fun parse(src: ReadableMap?, context: Context): Source {
-            Log.d("CoolSource","Connection received: " + src.toString())
             val source = Source()
 
             if (src != null) {
