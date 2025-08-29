@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.res.Resources
 import android.net.Uri
 import android.text.TextUtils
+import android.util.Log
 import com.brentvatne.common.api.DRMProps.Companion.parse
 import com.brentvatne.common.toolbox.DebugLog
 import com.brentvatne.common.toolbox.DebugLog.e
@@ -133,12 +134,16 @@ class Source {
         /** image uri to display */
         var imageUri: Uri? = null
 
+        /** Id of the video to display */
+        var videoShouldUpdate: Boolean? = true
+
         companion object {
             private const val PROP_SRC_METADATA_TITLE = "title"
             private const val PROP_SRC_METADATA_SUBTITLE = "subtitle"
             private const val PROP_SRC_METADATA_DESCRIPTION = "description"
             private const val PROP_SRC_METADATA_ARTIST = "artist"
             private const val PROP_SRC_METADATA_IMAGE_URI = "imageUri"
+            private const val PROP_SRC_METADATA_VIDEO_SHOULD_UPDATE = "videoShouldUpdate"
 
             /** parse metadata object */
             @JvmStatic
@@ -149,6 +154,7 @@ class Source {
                     metadata.subtitle = safeGetString(src, PROP_SRC_METADATA_SUBTITLE)
                     metadata.description = safeGetString(src, PROP_SRC_METADATA_DESCRIPTION)
                     metadata.artist = safeGetString(src, PROP_SRC_METADATA_ARTIST)
+                    metadata.videoShouldUpdate = safeGetBool(src, PROP_SRC_METADATA_VIDEO_SHOULD_UPDATE, true)
                     val imageUriString = safeGetString(src, PROP_SRC_METADATA_IMAGE_URI)
                     try {
                         metadata.imageUri = Uri.parse(imageUriString)

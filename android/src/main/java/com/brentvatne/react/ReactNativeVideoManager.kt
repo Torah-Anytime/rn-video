@@ -1,5 +1,6 @@
 package com.brentvatne.react
 
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.drm.DrmSessionManager

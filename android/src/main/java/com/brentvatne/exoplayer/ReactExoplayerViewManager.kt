@@ -161,11 +161,6 @@ class ReactExoplayerViewManager(private val config: ReactExoplayerConfig) : View
         videoView.setEnterPictureInPictureOnLeave(enterPictureInPictureOnLeave)
     }
 
-    @ReactProp(name = PROP_AUDIO_OUTPUT)
-    fun setAudioOutput(videoView: ReactExoplayerView, audioOutput: String) {
-        videoView.setAudioOutput(AudioOutput.get(audioOutput))
-    }
-
     @ReactProp(name = PROP_VOLUME, defaultFloat = 1.0f)
     fun setVolume(videoView: ReactExoplayerView, volume: Float) {
         videoView.setVolumeModifier(volume)

@@ -398,10 +398,11 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
 
     const setSource = useCallback(
       (_source?: ReactVideoSource) => {
+        console.log("Sent source to native side: " + JSON.stringify(_source))
         return NativeVideoManager.setSourceCmd(
           getReactTag(nativeRef),
           sourceToUnternalSource(_source),
-        );
+        )
       },
       [sourceToUnternalSource],
     );
