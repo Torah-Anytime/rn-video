@@ -1044,7 +1044,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
         //Special check which is specific to our code
         //FIXME there's probably a better way to ensure that if two lectures have the same id, the lecture is not updated
-        if(player.getCurrentMediaItem() == null || !player.getCurrentMediaItem().mediaId.endsWith("/" +  runningSource.getMetadata().getId())) {
+        if(Boolean.TRUE.equals(source.getMetadata().getVideoShouldUpdate())) {
             if (haveResumePosition) {
                 player.seekTo(resumeWindow, resumePosition);
                 player.setMediaSource(mediaSource, false);
@@ -2118,7 +2118,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setSrc(Source source) {
         if (source.getUri() != null) {
-            Log.i(TAG,"Source updated to new source with ID " + source.getMetadata().getId().toString());
+            Log.i(TAG,"Source updated to new source with VideoShouldUpdate " + source.getMetadata().getVideoShouldUpdate().toString());
             clearResumePosition();
             boolean isSourceEqual = source.isEquals(this.source);
             hasDrmFailed = false;

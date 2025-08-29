@@ -135,7 +135,7 @@ class Source {
         var imageUri: Uri? = null
 
         /** Id of the video to display */
-        var id: Int? = null
+        var videoShouldUpdate: Boolean? = true
 
         companion object {
             private const val PROP_SRC_METADATA_TITLE = "title"
@@ -143,7 +143,7 @@ class Source {
             private const val PROP_SRC_METADATA_DESCRIPTION = "description"
             private const val PROP_SRC_METADATA_ARTIST = "artist"
             private const val PROP_SRC_METADATA_IMAGE_URI = "imageUri"
-            private const val PROP_SRC_METADATA_ID = "id"
+            private const val PROP_SRC_METADATA_VIDEO_SHOULD_UPDATE = "videoShouldUpdate"
 
             /** parse metadata object */
             @JvmStatic
@@ -154,7 +154,7 @@ class Source {
                     metadata.subtitle = safeGetString(src, PROP_SRC_METADATA_SUBTITLE)
                     metadata.description = safeGetString(src, PROP_SRC_METADATA_DESCRIPTION)
                     metadata.artist = safeGetString(src, PROP_SRC_METADATA_ARTIST)
-                    metadata.id = safeGetInt(src, PROP_SRC_METADATA_ID,-1)
+                    metadata.videoShouldUpdate = safeGetBool(src, PROP_SRC_METADATA_VIDEO_SHOULD_UPDATE, true)
                     val imageUriString = safeGetString(src, PROP_SRC_METADATA_IMAGE_URI)
                     try {
                         metadata.imageUri = Uri.parse(imageUriString)
