@@ -105,7 +105,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
 
     const setQueue = useCallback((_queue?: Array<any>) => {
       setQueueState(_queue || []);
-      if (_queue && _queue.length > 0) {
+      if (_queue && _queue.length > 0 && q[0] !== _queue[0]) {
         setSource(_queue[0]);
       }
     }, []);
