@@ -1025,13 +1025,16 @@ public class ReactExoplayerView extends FrameLayout implements
             DebugLog.e(TAG, "Failed to initialize DRM Session Manager Framework!");
             return;
         }
+
+        String idString = runningSource.getMetadata() == null ? "" : "_react-native-video/" + runningSource.getMetadata().getId();
+
         // init source to manage ads and external text tracks
         MediaSource videoSource = buildMediaSource(runningSource.getUri(),
                 runningSource.getExtension(),
                 drmSessionManager,
                 runningSource.getCropStartMs(),
                 runningSource.getCropEndMs(),
-                "_react-native-video/" + runningSource.getMetadata().getId());
+                idString);
         MediaSource mediaSourceWithAds = initializeAds(videoSource, runningSource);
         MediaSource mediaSource = Objects.requireNonNullElse(mediaSourceWithAds, videoSource);
 
@@ -1044,7 +1047,7 @@ public class ReactExoplayerView extends FrameLayout implements
         boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
 
         //Special check which is specific to our code
-        if(Boolean.TRUE.equals(source.getMetadata().getVideoShouldUpdate())) {
+        if(source.getMetadata() == null || Boolean.TRUE.equals(source.getMetadata().getVideoShouldUpdate())) {
             if (haveResumePosition) {
                 player.seekTo(resumeWindow, resumePosition);
                 player.setMediaSource(mediaSource,false);
@@ -2122,7 +2125,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setSrc(Source source) {
         if (source.getUri() != null) {
-            Log.d(TAG,"Source updated to new source with VideoShouldUpdate " + source.getMetadata().getVideoShouldUpdate().toString());
+            if(source.getMetadata() != null) Log.d(TAG,"Source updated to new source with VideoShouldUpdate " + source.getMetadata().getVideoShouldUpdate().toString());
             clearResumePosition();
             boolean isSourceEqual = source.isEquals(this.source);
             hasDrmFailed = false;
