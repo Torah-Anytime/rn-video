@@ -1030,7 +1030,8 @@ public class ReactExoplayerView extends FrameLayout implements
                 runningSource.getExtension(),
                 drmSessionManager,
                 runningSource.getCropStartMs(),
-                runningSource.getCropEndMs());
+                runningSource.getCropEndMs(),
+                "/" + runningSource.getMetadata().getId());
         MediaSource mediaSourceWithAds = initializeAds(videoSource, runningSource);
         MediaSource mediaSource = Objects.requireNonNullElse(mediaSourceWithAds, videoSource);
 
@@ -1043,24 +1044,23 @@ public class ReactExoplayerView extends FrameLayout implements
         boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
 
         //Special check which is specific to our code
-        //FIXME there's probably a better way to ensure that if two lectures have the same id, the lecture is not updated
-        if(player.getCurrentMediaItem() == null || !player.getCurrentMediaItem().mediaId.endsWith("/" +  runningSource.getMetadata().getId())) {
+        if(Boolean.TRUE.equals(source.getMetadata().getVideoShouldUpdate())) {
             if (haveResumePosition) {
                 player.seekTo(resumeWindow, resumePosition);
-                player.setMediaSource(mediaSource, false);
+                player.setMediaSource(mediaSource,false);
             } else if (runningSource.getStartPositionMs() > 0) {
                 player.setMediaSource(mediaSource, runningSource.getStartPositionMs());
             } else {
                 player.setMediaSource(mediaSource, true);
             }
+            player.prepare();
+            playerNeedsSource = false;
+
+            reLayoutControls();
+
+            eventEmitter.onVideoLoadStart.invoke();
+            loadVideoStarted = true;
         }
-        player.prepare();
-        playerNeedsSource = false;
-
-        reLayoutControls();
-
-        eventEmitter.onVideoLoadStart.invoke();
-        loadVideoStarted = true;
 
         finishPlayerInitialization();
     }
@@ -1188,7 +1188,8 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    private MediaSource buildMediaSource(Uri uri, String overrideExtension, DrmSessionManager drmSessionManager, long cropStartMs, long cropEndMs) {
+    private MediaSource buildMediaSource(Uri uri, String overrideExtension, DrmSessionManager drmSessionManager, long cropStartMs, long cropEndMs, String mediaId) {
+        Log.d(TAG,"Building media source: \n\tURI: " + uri + "\n\tExtension: " + overrideExtension);
         if (uri == null) {
             throw new IllegalStateException("Invalid video uri");
         }
@@ -1309,7 +1310,10 @@ public class ReactExoplayerView extends FrameLayout implements
             );
         }
 
-        MediaItem mediaItem = mediaItemBuilder.setStreamKeys(streamKeys).build();
+        MediaItem mediaItem = mediaItemBuilder
+                .setStreamKeys(streamKeys)
+                .setMediaId(mediaId)
+                .build();
         MediaSource mediaSource = mediaSourceFactory
                 .setDrmSessionManagerProvider(drmProvider)
                 .setLoadErrorHandlingPolicy(
@@ -2118,7 +2122,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setSrc(Source source) {
         if (source.getUri() != null) {
-            Log.i(TAG,"Source updated to new source with ID " + source.getMetadata().getId().toString());
+            Log.d(TAG,"Source updated to new source with VideoShouldUpdate " + source.getMetadata().getVideoShouldUpdate().toString());
             clearResumePosition();
             boolean isSourceEqual = source.isEquals(this.source);
             hasDrmFailed = false;
