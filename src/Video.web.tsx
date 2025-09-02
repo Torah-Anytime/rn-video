@@ -93,7 +93,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
     );
 
     const [src, setSource] = useState(source);
-    const [setQueueState] = useState([]);
+    const [setQueueState] = useState<Array<any>>([]);
     const currentSourceProp = useRef(source);
     useEffect(() => {
       if (isDeepEqual(source, currentSourceProp.current)) {
@@ -104,8 +104,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
     }, [source]);
 
     const setQueue = useCallback((_queue?: Array<any>) => {
-      setQueueState(_queue);
-      // For web, we'll just set the first item in the queue as the current source
+      setQueueState(_queue || []);
       if (_queue && _queue.length > 0) {
         setSource(_queue[0]);
       }
