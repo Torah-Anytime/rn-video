@@ -10,6 +10,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
 import androidx.appcompat.app.AppCompatActivity
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -38,6 +39,15 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
         override fun run() {
             syncPlaybackState()
             stateCheckHandler.postDelayed(this, 500) // Check every 500ms
+        }
+    }
+
+    private val originalPlayerListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            super.onMediaItemTransition(mediaItem, reason)
+            if (player != null && mediaItem != null) {
+                player?.setMediaItem(mediaItem);
+            }
         }
     }
 
@@ -157,6 +167,9 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
                     }
                 }
             })
+
+            // Add the old player listener to the new player to check for null
+            originalPlayer.addListener(originalPlayerListener)
 
             // Set playback state to match original after a delay to ensure proper setup
             mainHandler.postDelayed({
@@ -291,6 +304,10 @@ class ExoPlayerFullscreenVideoActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         stateCheckHandler.removeCallbacks(stateCheckRunnable)
+
+        // Stop listening to the reactExoplayerView's player
+        val originalPlayer = reactExoplayerView?.player as? ExoPlayer
+        originalPlayer?.removeListener(originalPlayerListener)
 
         // Release our fullscreen player
         player?.release()
