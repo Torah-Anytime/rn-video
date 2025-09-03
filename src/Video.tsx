@@ -154,6 +154,8 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
           return undefined;
         }
 
+        const useCentralPlayer = _source.useCentralPlayer;
+
         const isLocalAssetFile =
           typeof _source === 'number' ||
           ('uri' in _source && typeof _source.uri === 'number') ||
@@ -239,6 +241,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
           isNetwork,
           isAsset,
           isLocalAssetFile,
+          useCentralPlayer,
           shouldCache: resolvedSource.shouldCache || false,
           type: resolvedSource.type || '',
           mainVer: resolvedSource.mainVer || 0,
