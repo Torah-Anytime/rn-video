@@ -93,6 +93,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
     );
 
     const [src, setSource] = useState(source);
+    const [q, setQueueState] = useState<Array<any>>([]);
     const currentSourceProp = useRef(source);
     useEffect(() => {
       if (isDeepEqual(source, currentSourceProp.current)) {
@@ -101,6 +102,12 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
       currentSourceProp.current = source;
       setSource(source);
     }, [source]);
+
+    const setQueue = useCallback((_queue?: Array<any>) => {
+      if (_queue && _queue.length > 0 && q[0] !== _queue[0]) {
+        setQueueState(_queue);
+      }
+    }, []);
 
     const pause = useCallback(() => {
       if (!nativeRef.current) {
@@ -233,6 +240,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
         pause,
         resume,
         setVolume,
+        setQueue,
         getCurrentPosition,
         presentFullscreenPlayer,
         dismissFullscreenPlayer,
@@ -246,6 +254,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
       [
         seek,
         setSource,
+        setQueue,
         pause,
         resume,
         unsupported,

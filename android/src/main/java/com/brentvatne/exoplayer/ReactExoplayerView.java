@@ -195,7 +195,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private ImaAdsLoader adsLoader;
 
     private DataSource.Factory mediaDataSourceFactory;
-    private CentralizedPlaybackManager player;
+    private ExoPlayer player;
     private DefaultTrackSelector trackSelector;
     private boolean playerNeedsSource;
     private ServiceConnection playbackServiceConnection;
@@ -797,9 +797,9 @@ public class ReactExoplayerView extends FrameLayout implements
                     return;
                 }
 
-                if (player == null) {
-                    // Initialize core configuration and listeners
-                    initializePlayerCore(self);
+                if (player == null && runningSource.getUseCentralPlayer()) {
+                    // Connect to the player
+                    establishPlayerConnection();
                 }
                 if (!source.isLocalAssetFile() && !source.isAsset() && source.getBufferConfig().getCacheSize() > 0) {
                     RNVSimpleCache.INSTANCE.setSimpleCache(
@@ -823,11 +823,11 @@ public class ReactExoplayerView extends FrameLayout implements
 
     private Runnable onPlayerInitializedRunnable(Source runningSource, ReactExoplayerView self){
         return () -> {
-            player.getMainHandler().post(() -> {
+            new Handler(Looper.getMainLooper()).post(() -> {
                 Log.d(TAG, "Running Player Post-Initialization");
 
-                boolean postInitSucessful = postInitializePlayerCore(self);
-                if(!postInitSucessful) return;
+                boolean postInitSuccessful = postInitializePlayerCore(self, runningSource);
+                if(!postInitSuccessful) return;
 
                 // Create source (and DRM) if needed
                 if (playerNeedsSource) {
@@ -861,15 +861,19 @@ public class ReactExoplayerView extends FrameLayout implements
         ReactExoplayerView self = this;
         //Activity activity = themedReactContext.getCurrentActivity();
         // This ensures all props have been settled, to avoid async racing conditions.
-        Source runningSource = source;
 
         playerInitRunnable = initializePlayerRunnable(source,self);
         playerPostInitRunnable = onPlayerInitializedRunnable(source,self);
 
         // Connect to player to initialize a connection to it, then run some code once we have a solid player object.
+        // If the centralized player is not being used, we don't need to wait for a connection and we can execute the post init right away
         ExecutorService es = Executors.newSingleThreadExecutor();
         playerInitRunnable.run();
-        cpmConnection.getInstanceFuture().addListener(playerPostInitRunnable,es);
+        if(source.getUseCentralPlayer()) {
+            cpmConnection.getInstanceFuture().addListener(playerPostInitRunnable, es);
+        }else{
+            playerPostInitRunnable.run();
+        }
     }
 
     public void getCurrentPosition(Promise promise) {
@@ -881,50 +885,55 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    private void initializePlayerCore(ReactExoplayerView self) {
-        ExoTrackSelection.Factory videoTrackSelectionFactory = new AdaptiveTrackSelection.Factory();
-        self.trackSelector = new DefaultTrackSelector(getContext(), videoTrackSelectionFactory);
-        self.trackSelector.setParameters(trackSelector.buildUponParameters()
-                .setMaxVideoBitrate(maxBitRate == 0 ? Integer.MAX_VALUE : maxBitRate));
+    private void initializePlayerCore(ReactExoplayerView self, Source runningSource) {
 
-        DefaultAllocator allocator = new DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE);
-        RNVLoadControl loadControl = new RNVLoadControl(
-                allocator,
-                source.getBufferConfig()
-        );
-        DefaultRenderersFactory renderersFactory =
-                new DefaultRenderersFactory(getContext())
-                        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-                        .setEnableDecoderFallback(true)
-                        .forceEnableMediaCodecAsynchronousQueueing();
 
-        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(mediaDataSourceFactory);
-        if (useCache) {
-            mediaSourceFactory.setDataSourceFactory(RNVSimpleCache.INSTANCE.getCacheFactory(buildHttpDataSourceFactory(true)));
-        }
 
-        mediaSourceFactory.setLocalAdInsertionComponents(unusedAdTagUri -> adsLoader, exoPlayerView);
+            //CPM temp update
 
-        /*player = new ExoPlayer.Builder(getContext(), renderersFactory)
-                .setTrackSelector(self.trackSelector)
-                .setBandwidthMeter(bandwidthMeter)
-                .setLoadControl(loadControl)
-                .setMediaSourceFactory(mediaSourceFactory)
-                .build();*/
-
-        //CPM temp update
-        establishPlayerConnection();
     }
 
     /**
      * @return true if post-initializtion was succesful, false if not
      */
-    private boolean postInitializePlayerCore(ReactExoplayerView self){
+    private boolean postInitializePlayerCore(ReactExoplayerView self, Source runningSource){
         Log.d(TAG, "Switched player to CPM from REV " + this);
-        player = cpmConnection.getInstance();
+
+        ExoTrackSelection.Factory videoTrackSelectionFactory = new AdaptiveTrackSelection.Factory();
+        self.trackSelector = new DefaultTrackSelector(getContext(), videoTrackSelectionFactory);
+        self.trackSelector.setParameters(trackSelector.buildUponParameters()
+                .setMaxVideoBitrate(maxBitRate == 0 ? Integer.MAX_VALUE : maxBitRate));
+
+        if(!runningSource.getUseCentralPlayer()) {
+            DefaultAllocator allocator = new DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE);
+            RNVLoadControl loadControl = new RNVLoadControl(
+                    allocator,
+                    source.getBufferConfig()
+            );
+            DefaultRenderersFactory renderersFactory =
+                    new DefaultRenderersFactory(getContext())
+                            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+                            .setEnableDecoderFallback(true)
+                            .forceEnableMediaCodecAsynchronousQueueing();
+
+            DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(mediaDataSourceFactory);
+            if (useCache) {
+                mediaSourceFactory.setDataSourceFactory(RNVSimpleCache.INSTANCE.getCacheFactory(buildHttpDataSourceFactory(true)));
+            }
+
+            mediaSourceFactory.setLocalAdInsertionComponents(unusedAdTagUri -> adsLoader, exoPlayerView);
+
+            player = new ExoPlayer.Builder(getContext(), renderersFactory)
+                    .setTrackSelector(self.trackSelector)
+                    .setBandwidthMeter(bandwidthMeter)
+                    .setLoadControl(loadControl)
+                    .setMediaSourceFactory(mediaSourceFactory)
+                    .build();
+        }else {
+            player = cpmConnection.getInstance();
+        }
         if(player == null) return false;
 
-        //Old stuff
         ReactNativeVideoManager.Companion.getInstance().onInstanceCreated(instanceId, player);
         refreshDebugState();
         player.addListener(self);
@@ -1047,7 +1056,7 @@ public class ReactExoplayerView extends FrameLayout implements
         boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
 
         //Special check which is specific to our code
-        if(source.getMetadata() == null || Boolean.TRUE.equals(source.getMetadata().getVideoShouldUpdate())) {
+        if(runningSource.getMetadata() == null || Boolean.TRUE.equals(runningSource.getMetadata().getVideoShouldUpdate())) {
             if (haveResumePosition) {
                 player.seekTo(resumeWindow, resumePosition);
                 player.setMediaSource(mediaSource,false);
@@ -1370,6 +1379,7 @@ public class ReactExoplayerView extends FrameLayout implements
             }
 
             updateResumePosition();
+            if(!source.getUseCentralPlayer()) player.release();
             player.removeListener(this);
             PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
             if (pipListenerUnsubscribe != null) {
@@ -2125,7 +2135,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setSrc(Source source) {
         if (source.getUri() != null) {
-            if(source.getMetadata() != null) Log.d(TAG,"Source updated to new source with VideoShouldUpdate " + source.getMetadata().getVideoShouldUpdate().toString());
+            Log.d(TAG,"Source updated from REV " + this);
             clearResumePosition();
             boolean isSourceEqual = source.isEquals(this.source);
             hasDrmFailed = false;

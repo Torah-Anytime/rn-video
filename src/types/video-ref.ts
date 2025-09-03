@@ -19,6 +19,7 @@ export interface VideoRef {
   getCurrentPosition: () => Promise<number>;
   setFullScreen: (fullScreen: boolean) => void;
   setSource: (source?: ReactVideoSource) => void;
+  setQueue: (queue?: ReactVideoSource[]) => void;
   enterPictureInPicture: () => void;
   exitPictureInPicture: () => void;
   nativeHtmlVideoRef?: RefObject<HTMLVideoElement | null>; // web only

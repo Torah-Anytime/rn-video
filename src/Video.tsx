@@ -154,6 +154,8 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
           return undefined;
         }
 
+        const useCentralPlayer = _source.useCentralPlayer;
+
         const isLocalAssetFile =
           typeof _source === 'number' ||
           ('uri' in _source && typeof _source.uri === 'number') ||
@@ -239,6 +241,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
           isNetwork,
           isAsset,
           isLocalAssetFile,
+          useCentralPlayer,
           shouldCache: resolvedSource.shouldCache || false,
           type: resolvedSource.type || '',
           mainVer: resolvedSource.mainVer || 0,
@@ -398,11 +401,20 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
 
     const setSource = useCallback(
       (_source?: ReactVideoSource) => {
-        console.log("Sent source to native side: " + JSON.stringify(_source))
         return NativeVideoManager.setSourceCmd(
           getReactTag(nativeRef),
           sourceToUnternalSource(_source),
         )
+      },
+      [sourceToUnternalSource],
+    );
+
+    const setQueue = useCallback(
+      (_queue?: Array<ReactVideoSource>) => {
+        return NativeVideoManager.setQueueCmd(
+          getReactTag(nativeRef),
+          _queue?.map(sourceToUnternalSource),
+        );
       },
       [sourceToUnternalSource],
     );
@@ -716,6 +728,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
         enterPictureInPicture,
         exitPictureInPicture,
         setSource,
+        setQueue,
       }),
       [
         seek,
@@ -731,6 +744,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
         enterPictureInPicture,
         exitPictureInPicture,
         setSource,
+        setQueue
       ],
     );
 
