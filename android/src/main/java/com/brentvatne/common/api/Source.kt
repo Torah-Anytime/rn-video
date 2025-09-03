@@ -32,7 +32,7 @@ class Source {
     var uri: Uri? = null
 
     /** Specification if the ReactExoplayerView should use the central player */
-    var useCentralPlayer: Boolean = true
+    var useCentralPlayer: Boolean = false
 
     /** True if source is a local JS asset */
     var isLocalAssetFile: Boolean = false
@@ -248,7 +248,7 @@ class Source {
                 }
                 source.uriString = uriString
                 source.uri = uri
-                source.useCentralPlayer = safeGetBool(src, PROP_SRC_USE_CENTRAL_PLAYER, true)
+                source.useCentralPlayer = safeGetBool(src, PROP_SRC_USE_CENTRAL_PLAYER, false)
                 source.isLocalAssetFile = safeGetBool(src, PROP_SRC_IS_LOCAL_ASSET_FILE, false)
                 source.isAsset = safeGetBool(src, PROP_SRC_IS_ASSET, false)
                 source.startPositionMs = safeGetInt(src, PROP_SRC_START_POSITION, -1)
