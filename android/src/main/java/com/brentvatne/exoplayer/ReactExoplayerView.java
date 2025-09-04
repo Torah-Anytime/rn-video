@@ -1099,7 +1099,6 @@ public class ReactExoplayerView extends FrameLayout implements
                     if (currentActivity != null) {
                         playbackServiceBinder.getService().registerPlayer(player,
                                 (Class<Activity>) currentActivity.getClass());
-                        Log.i(TAG, "Notifications registered for " + player + " central? " + source.getUseCentralPlayer());
                     } else {
                         // Handle the case where currentActivity is null
                         DebugLog.w(TAG, "Could not register ExoPlayer: currentActivity is null");
@@ -1114,7 +1113,6 @@ public class ReactExoplayerView extends FrameLayout implements
                 try {
                     if (playbackServiceBinder != null) {
                         playbackServiceBinder.getService().unregisterPlayer(player);
-                        Log.i(TAG, "Notifications unregistered for " + player + " (1)");
                     }
                 } catch (Exception ignored) {}
 
@@ -1150,7 +1148,6 @@ public class ReactExoplayerView extends FrameLayout implements
         try {
             if(player != null && playbackServiceBinder != null) {
                 playbackServiceBinder.getService().unregisterPlayer(player);
-                Log.i(TAG, "Notifications unregistered for " + player + " (2)");
             }
 
             playbackServiceBinder = null;
@@ -1378,7 +1375,6 @@ public class ReactExoplayerView extends FrameLayout implements
         if (player != null) {
             if(playbackServiceBinder != null) {
                 playbackServiceBinder.getService().unregisterPlayer(player);
-                Log.i(TAG, "Notifications unregistered for " + player + " (3)");
                 themedReactContext.unbindService(playbackServiceConnection);
             }
 

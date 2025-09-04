@@ -1,10 +1,13 @@
 package com.brentvatne.exoplayer;
 
+import android.app.Activity;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.media.AudioDeviceInfo;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -53,9 +56,11 @@ import androidx.media3.exoplayer.trackselection.TrackSelector;
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener;
 import androidx.media3.exoplayer.video.spherical.CameraMotionListener;
+import androidx.media3.session.MediaSessionService;
 
 import android.app.Service;
 
+import com.brentvatne.common.toolbox.DebugLog;
 import com.google.common.util.concurrent.SettableFuture;
 
 import java.util.ArrayList;
@@ -85,6 +90,9 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     private ExoPlayer player;
     private final IBinder binder = new LocalBinder();
+
+    private ServiceConnection playbackServiceConnection;
+    private PlaybackServiceBinder playbackServiceBinder;
 
     private static volatile CentralizedPlaybackManager instance = null;
 
@@ -216,7 +224,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         return false;
     }
 
-    // This is the CRUCIAL method you need to implement
     @Override
     public void onCreate() {
         super.onCreate();
