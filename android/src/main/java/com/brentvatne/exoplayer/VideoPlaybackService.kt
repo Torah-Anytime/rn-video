@@ -132,7 +132,6 @@ class VideoPlaybackService : MediaSessionService() {
 
         if (session.player.currentMediaItem == null) {
             notificationManager.cancel(session.player.hashCode())
-            Log.i(TAG,"Player canceled (1)");
             return
         }
 
@@ -239,13 +238,14 @@ class VideoPlaybackService : MediaSessionService() {
     private fun hidePlayerNotification(player: ExoPlayer) {
         val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(player.hashCode())
-        Log.i(TAG,"Player canceled (2)");
     }
 
     private fun hideAllNotifications() {
         val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.cancelAll()
-        Log.i(TAG,"Player canceled all");
+        for(player in mediaSessionsList.keys){
+            notificationManager.cancel(player.hashCode())
+            mediaSessionsList.remove(player)
+        }
     }
 
     private fun cleanup() {

@@ -2,10 +2,14 @@ package com.brentvatne.exoplayer;
 
 import android.annotation.SuppressLint;
 import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -22,11 +26,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.concurrent.ExecutionException;
 
 public class CentralizedPlaybackNotificationManager extends MediaSessionService {
-    @Nullable
-    @Override
-    public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) {
-        return null;
-    }
+
+    public static final String TAG = "CentralizedPlaybackNotificationManager";
 
     private enum Command {
         NONE("NONE"),
@@ -62,21 +63,71 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
 
     private String NOTIFICATION_CHANEL_ID = "CPNM_SESSION_NOTIFICATION";
 
+    private final Player player;
+
+    @SuppressLint("ForegroundServiceType")
     public CentralizedPlaybackNotificationManager(Player player){
+        this.player = player;
+
         MediaSession mediaSession = new MediaSession.Builder(this, player)
                 .setId("RNVideoPlaybackService_" + player.hashCode())
                 .setCallback(new VideoPlaybackCallback())
                 .setCustomLayout(ImmutableList.of(seekForwardBtn, seekBackwardBtn))
                 .build();
 
+        Notification notification;
+        try{
+            notification = buildNotification(mediaSession);
+        } catch (Exception e) {
+            Log.w(TAG,"Exception thrown when building notification, running without notifications");
+            return;
+        }
 
+
+
+        startForeground(player.hashCode(), notification);
     }
 
     public void stop(){
-
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        manager.cancel(player.hashCode());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
+        }
     }
 
-    private void buildNotification(MediaSession mediaSession) throws ExecutionException, InterruptedException {
+    @Nullable
+    @Override
+    public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) {
+        return null;
+    }
+
+    @Override
+    public void onUpdateNotification(MediaSession session, boolean startInForegroundRequired) {
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                    new NotificationChannel(
+                            NOTIFICATION_CHANEL_ID,
+                            NOTIFICATION_CHANEL_ID,
+                            NotificationManager.IMPORTANCE_LOW
+                    )
+            );
+        }
+
+        Notification notification;
+        try{
+            notification = buildNotification(session);
+        } catch (Exception e) {
+            Log.w(TAG,"Exception thrown when updating notification");
+            return;
+        }
+
+        manager.notify(player.hashCode(), notification);
+    }
+
+
+    private Notification buildNotification(MediaSession mediaSession) throws ExecutionException, InterruptedException {
         Intent returnToPlayer = new Intent(this, this.getClass()).addFlags(
                 Intent.FLAG_ACTIVITY_SINGLE_TOP |
                         Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -88,6 +139,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
                     .setStyle(new MediaStyleNotificationHelper.MediaStyle(mediaSession))
                     .setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE))
                     .build();
+            return notification;
         }else{
 
             int playerId = mediaSession.getPlayer().hashCode();
@@ -149,6 +201,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
                         mediaSession.getBitmapLoader().loadBitmap(mediaSession.getPlayer().getMediaMetadata().artworkUri).get() :
                         null)
                     .setOngoing(true);
+            return builder.build();
         }
     }
 }
