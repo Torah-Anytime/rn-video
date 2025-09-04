@@ -12,6 +12,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
@@ -51,6 +52,7 @@ class VideoPlaybackService : MediaSessionService() {
     // Player Registry
 
     fun registerPlayer(player: ExoPlayer, from: Class<Activity>) {
+        Log.i(TAG,"Player $player registered in $this")
         if (mediaSessionsList.containsKey(player)) {
             return
         }
@@ -76,12 +78,16 @@ class VideoPlaybackService : MediaSessionService() {
     }
 
     fun unregisterPlayer(player: ExoPlayer) {
-        hidePlayerNotification(player)
+        Log.i(TAG,"Player $player released from $this")
         val session = mediaSessionsList.remove(player)
         session?.release()
         if (mediaSessionsList.isEmpty()) {
+            Log.d(TAG,"MSL is empty")
             cleanup()
             stopSelf()
+        }else{
+            hidePlayerNotification(player)
+            Log.d(TAG,"MSL is $mediaSessionsList")
         }
     }
 
@@ -126,6 +132,7 @@ class VideoPlaybackService : MediaSessionService() {
 
         if (session.player.currentMediaItem == null) {
             notificationManager.cancel(session.player.hashCode())
+            Log.i(TAG,"Player canceled (1)");
             return
         }
 
@@ -232,11 +239,13 @@ class VideoPlaybackService : MediaSessionService() {
     private fun hidePlayerNotification(player: ExoPlayer) {
         val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(player.hashCode())
+        Log.i(TAG,"Player canceled (2)");
     }
 
     private fun hideAllNotifications() {
         val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancelAll()
+        Log.i(TAG,"Player canceled all");
     }
 
     private fun cleanup() {
