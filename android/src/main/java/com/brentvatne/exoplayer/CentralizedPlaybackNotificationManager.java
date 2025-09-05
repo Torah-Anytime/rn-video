@@ -79,14 +79,17 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
 
 
     @SuppressLint("ForegroundServiceType")
-    public void setup(Player player, Context context){
+    public void setup(Player player){
+        Log.i(TAG,"CPNM created with player " + player);
         this.player = player;
 
-        MediaSession mediaSession = new MediaSession.Builder(context, player)
+        MediaSession mediaSession = new MediaSession.Builder(this, player)
                 .setId("RNVideoPlaybackService_" + player.hashCode())
                 .setCallback(new VideoPlaybackCallback())
                 .setCustomLayout(ImmutableList.of(seekForwardBtn, seekBackwardBtn))
                 .build();
+
+        addSession(mediaSession);
 
         Notification notification;
         try{
@@ -132,6 +135,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
 
     @Override
     public void onUpdateNotification(MediaSession session, boolean startInForegroundRequired) {
+        Log.d(TAG,"Notification updated");
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
@@ -155,6 +159,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     }
 
     private Notification createPlaceholderNotification(){
+        Log.d(TAG,"Placeholder notification created");
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(

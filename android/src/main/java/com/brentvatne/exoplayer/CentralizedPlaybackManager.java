@@ -123,7 +123,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             @Override
             public void onServiceConnected(ComponentName name, IBinder service) {
                 binder = (CentralizedPlaybackNotificationManager.CPNMBinder) service;
-                binder.manager.setup(player, getApplicationContext());
+                binder.manager.setup(player);
             }
 
             @Override
