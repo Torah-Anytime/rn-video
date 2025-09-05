@@ -1,10 +1,10 @@
 import {withAndroidManifest, type ConfigPlugin} from '@expo/config-plugins';
 
 export const withNotificationControls: ConfigPlugin<boolean> = (
-  c,
-  enableNotificationControls,
+  c: any,
+  enableNotificationControls: any,
 ) => {
-  return withAndroidManifest(c, (config) => {
+  return withAndroidManifest(c, (config: any) => {
     const manifest = config.modResults.manifest;
 
     if (!enableNotificationControls) {
@@ -19,22 +19,22 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
     }
 
     // Add the service to the AndroidManifest.xml
-    manifest.application.map((application) => {
+    manifest.application.map((application: any) => {
       function registerApplication(s: string){
-          // We check if the VideoPlaybackService is already defined in the AndroidManifest.xml
+        // We check if the VideoPlaybackService is already defined in the AndroidManifest.xml
         // to prevent adding duplicate service entries. If the service exists, we will remove
         // it before adding the updated configuration to ensure there are no conflicts or redundant
         // service declarations in the manifest.
-        const existingServiceIndex = application.service.findIndex(
-          (service) =>
+        const existingServiceIndex = application?.service.findIndex(
+          (service: any) =>
             service?.$?.['android:name'] ===
             'com.brentvatne.exoplayer.' + s,
         );
         if (existingServiceIndex !== -1) {
-          application.service.splice(existingServiceIndex, 1);
+          application?.service.splice(existingServiceIndex, 1);
         }
 
-        application.service.push({
+        application?.service.push({
           $: {
             'android:name': 'com.brentvatne.exoplayer.' + s,
             'android:exported': 'false',
@@ -55,7 +55,7 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
         });
       }
 
-      if (!application.service) {
+      if (!application?.service) {
         application.service = [];
       }
 
