@@ -5,10 +5,13 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -44,6 +47,15 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         public String stringValue;
     }
 
+    public class CPNMBinder extends Binder{
+        public final CentralizedPlaybackNotificationManager manager;
+        public CPNMBinder(CentralizedPlaybackNotificationManager manager){
+            this.manager = manager;
+        }
+    }
+
+    private final Binder binder = new CPNMBinder(this);
+
     private SessionCommand commandSeekForward = new SessionCommand(Command.SEEK_FORWARD.stringValue, Bundle.EMPTY);
     private SessionCommand commandSeekBackward = new SessionCommand(Command.SEEK_BACKWARD.stringValue, Bundle.EMPTY);
 
@@ -63,13 +75,14 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
 
     private String NOTIFICATION_CHANEL_ID = "CPNM_SESSION_NOTIFICATION";
 
-    private final Player player;
+    private Player player;
+
 
     @SuppressLint("ForegroundServiceType")
-    public CentralizedPlaybackNotificationManager(Player player){
+    public void setup(Player player, Context context){
         this.player = player;
 
-        MediaSession mediaSession = new MediaSession.Builder(this, player)
+        MediaSession mediaSession = new MediaSession.Builder(context, player)
                 .setId("RNVideoPlaybackService_" + player.hashCode())
                 .setCallback(new VideoPlaybackCallback())
                 .setCustomLayout(ImmutableList.of(seekForwardBtn, seekBackwardBtn))
@@ -83,23 +96,38 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
             return;
         }
 
-
-
         startForeground(player.hashCode(), notification);
     }
 
+    /**
+     *  Stops the notification manager
+     */
     public void stop(){
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         manager.cancel(player.hashCode());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
         }
+        stopSelf();
     }
 
     @Nullable
     @Override
     public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) {
         return null;
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(@Nullable Intent intent) {
+        super.onBind(intent);
+        return binder;
+    }
+
+    @Override
+    public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
+        createPlaceholderNotification();
+        return super.onStartCommand(intent, flags, startId);
     }
 
     @Override
@@ -124,6 +152,25 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         }
 
         manager.notify(player.hashCode(), notification);
+    }
+
+    private Notification createPlaceholderNotification(){
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                    new NotificationChannel(
+                            NOTIFICATION_CHANEL_ID,
+                            NOTIFICATION_CHANEL_ID,
+                            NotificationManager.IMPORTANCE_LOW
+                    )
+            );
+        }
+
+        return new NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID)
+                .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
+                .setContentTitle(getString(R.string.media_playback_notification_title))
+                .setContentText(getString(R.string.media_playback_notification_text))
+                .build();
     }
 
 

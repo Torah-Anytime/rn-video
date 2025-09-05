@@ -91,9 +91,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private ExoPlayer player;
     private final IBinder binder = new LocalBinder();
 
-    private ServiceConnection playbackServiceConnection;
-    private PlaybackServiceBinder playbackServiceBinder;
-
     private static volatile CentralizedPlaybackManager instance = null;
 
     private final static boolean logAllMethodCalls = false;
@@ -112,12 +109,46 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             return;
         }
 
+        // Build the player
         Log.d(TAG, "Setting up the player on " + this.getApplicationContext());
         this.player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(getCustomMediaSourceFactory())
                 .build();
         this.player.setAudioAttributes(AudioAttributes.DEFAULT,true);
 
+        // Build the notification manager
+        ServiceConnection playbackServiceConnection = new ServiceConnection() {
+            CentralizedPlaybackNotificationManager.CPNMBinder binder = null;
+
+            @Override
+            public void onServiceConnected(ComponentName name, IBinder service) {
+                binder = (CentralizedPlaybackNotificationManager.CPNMBinder) service;
+                binder.manager.setup(player, getApplicationContext());
+            }
+
+            @Override
+            public void onServiceDisconnected(ComponentName name) {
+                binder.manager.stop();
+            }
+        };
+        Intent intent = new Intent(getApplicationContext(), CentralizedPlaybackNotificationManager.class);
+        intent.setAction(MediaSessionService.SERVICE_INTERFACE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getApplicationContext().startForegroundService(intent);
+        } else {
+            getApplicationContext().startService(intent);
+        }
+
+        int flags;
+        if (Build.VERSION.SDK_INT >= 29) {
+            flags = Context.BIND_AUTO_CREATE | Context.BIND_INCLUDE_CAPABILITIES;
+        } else {
+            flags = Context.BIND_AUTO_CREATE;
+        }
+        getApplicationContext().bindService(intent, playbackServiceConnection, flags);
+
+        // Start the debugging listener
         startDebuggingListener();
     }
 
