@@ -56,6 +56,25 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
           },
         ],
       });
+      application.service.push({
+        $: {
+          'android:name': 'com.brentvatne.exoplayer.CentralizedPlaybackNotificationManager',
+          'android:exported': 'false',
+          // @ts-expect-error: 'android:foregroundServiceType' does not exist in type 'ManifestServiceAttributes'.
+          'android:foregroundServiceType': 'mediaPlayback',
+        },
+        'intent-filter': [
+          {
+            action: [
+              {
+                $: {
+                  'android:name': 'androidx.media3.session.MediaSessionService',
+                },
+              },
+            ],
+          },
+        ],
+      });
 
       return application;
     });
