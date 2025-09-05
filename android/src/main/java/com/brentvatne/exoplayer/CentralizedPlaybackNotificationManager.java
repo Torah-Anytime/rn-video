@@ -84,7 +84,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         this.player = player;
 
         MediaSession mediaSession = new MediaSession.Builder(this, player)
-                .setId("RNVideoPlaybackService_" + player.hashCode())
+                .setId("CPNMService_" + player.hashCode())
                 .setCallback(new VideoPlaybackCallback())
                 .setCustomLayout(ImmutableList.of(seekForwardBtn, seekBackwardBtn))
                 .build();
@@ -102,18 +102,6 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         startForeground(player.hashCode(), notification);
     }
 
-    /**
-     *  Stops the notification manager
-     */
-    public void stop(){
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        manager.cancel(player.hashCode());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
-        }
-        stopSelf();
-    }
-
     @Nullable
     @Override
     public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) {
@@ -125,6 +113,17 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     public IBinder onBind(@Nullable Intent intent) {
         super.onBind(intent);
         return binder;
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        manager.cancel(player.hashCode());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
+        }
+        stopSelf();
     }
 
     @Override
@@ -180,6 +179,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
 
 
     private Notification buildNotification(MediaSession mediaSession) throws ExecutionException, InterruptedException {
+
         Intent returnToPlayer = new Intent(this, this.getClass()).addFlags(
                 Intent.FLAG_ACTIVITY_SINGLE_TOP |
                         Intent.FLAG_ACTIVITY_CLEAR_TOP
