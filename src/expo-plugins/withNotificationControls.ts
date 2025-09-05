@@ -38,7 +38,6 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
           $: {
             'android:name': 'com.brentvatne.exoplayer.' + s,
             'android:exported': 'false',
-            // @ts-expect-error: 'android:foregroundServiceType' does not exist in type 'ManifestServiceAttributes'.
             'android:foregroundServiceType': 'mediaPlayback',
           },
           'intent-filter': [
