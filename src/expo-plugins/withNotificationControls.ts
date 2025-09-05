@@ -20,42 +20,47 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
 
     // Add the service to the AndroidManifest.xml
     manifest.application.map((application) => {
+      function registerApplication(s: string){
+          // We check if the VideoPlaybackService is already defined in the AndroidManifest.xml
+        // to prevent adding duplicate service entries. If the service exists, we will remove
+        // it before adding the updated configuration to ensure there are no conflicts or redundant
+        // service declarations in the manifest.
+        const existingServiceIndex = application.service.findIndex(
+          (service) =>
+            service?.$?.['android:name'] ===
+            'com.brentvatne.exoplayer.' + s,
+        );
+        if (existingServiceIndex !== -1) {
+          application.service.splice(existingServiceIndex, 1);
+        }
+
+        application.service.push({
+          $: {
+            'android:name': 'com.brentvatne.exoplayer.' + s,
+            'android:exported': 'false',
+            // @ts-expect-error: 'android:foregroundServiceType' does not exist in type 'ManifestServiceAttributes'.
+            'android:foregroundServiceType': 'mediaPlayback',
+          },
+          'intent-filter': [
+            {
+              action: [
+                {
+                  $: {
+                    'android:name': 'androidx.media3.session.MediaSessionService',
+                  },
+                },
+              ],
+            },
+          ],
+        });
+      }
+
       if (!application.service) {
         application.service = [];
       }
 
-      // We check if the VideoPlaybackService is already defined in the AndroidManifest.xml
-      // to prevent adding duplicate service entries. If the service exists, we will remove
-      // it before adding the updated configuration to ensure there are no conflicts or redundant
-      // service declarations in the manifest.
-      const existingServiceIndex = application.service.findIndex(
-        (service) =>
-          service?.$?.['android:name'] ===
-          'com.brentvatne.exoplayer.VideoPlaybackService',
-      );
-      if (existingServiceIndex !== -1) {
-        application.service.splice(existingServiceIndex, 1);
-      }
-
-      application.service.push({
-        $: {
-          'android:name': 'com.brentvatne.exoplayer.VideoPlaybackService',
-          'android:exported': 'false',
-          // @ts-expect-error: 'android:foregroundServiceType' does not exist in type 'ManifestServiceAttributes'.
-          'android:foregroundServiceType': 'mediaPlayback',
-        },
-        'intent-filter': [
-          {
-            action: [
-              {
-                $: {
-                  'android:name': 'androidx.media3.session.MediaSessionService',
-                },
-              },
-            ],
-          },
-        ],
-      });
+      registerApplication("VideoPlaybackService")
+      registerApplication("CentralizedPlaybackNotificationManager")
 
       return application;
     });

@@ -949,7 +949,7 @@ public class ReactExoplayerView extends FrameLayout implements
         PlaybackParameters params = new PlaybackParameters(rate, 1f);
         player.setPlaybackParameters(params);
 
-        if (showNotificationControls) {
+        if (showNotificationControls && source != null && !source.getUseCentralPlayer()) {
             setupPlaybackService();
         }
         return true;
@@ -2592,7 +2592,7 @@ public class ReactExoplayerView extends FrameLayout implements
     public void setShowNotificationControls(boolean showNotificationControls) {
         this.showNotificationControls = showNotificationControls;
 
-        if (playbackServiceConnection == null && showNotificationControls) {
+        if (playbackServiceConnection == null && showNotificationControls && source != null && !source.getUseCentralPlayer()) {
             setupPlaybackService();
         } else if(!showNotificationControls && playbackServiceConnection != null) {
             cleanupPlaybackService();
