@@ -157,7 +157,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
                     } else if (notificationServiceConnection == null){
                         // Build the notification manager
                         notificationServiceConnection = new ServiceConnection() {
-
                             @Override
                             public void onServiceConnected(ComponentName name, IBinder service) {
                                 cpnmBinder = (CentralizedPlaybackNotificationManager.CPNMBinder) service;

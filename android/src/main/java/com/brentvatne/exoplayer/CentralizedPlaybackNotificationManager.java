@@ -83,6 +83,8 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         Log.i(TAG,"CPNM created with player " + player);
         this.player = player;
 
+
+        //FIXME Session ID Must Be Unique
         MediaSession mediaSession = new MediaSession.Builder(this, player)
                 .setId("CPNMService_" + player.hashCode())
                 .setCallback(new VideoPlaybackCallback())
@@ -118,6 +120,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        Log.i(TAG,"CPNM destroyed");
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         manager.cancel(player.hashCode());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

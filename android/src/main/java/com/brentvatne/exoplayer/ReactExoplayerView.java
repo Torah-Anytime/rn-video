@@ -282,7 +282,9 @@ public class ReactExoplayerView extends FrameLayout implements
     private CmcdConfiguration.Factory cmcdConfigurationFactory;
 
     //CentralizedPlayerManager interface
-    private CentralizedPlaybackManager.LocalBinderConnection cpmConnection;
+    private CentralizedPlaybackManager.LocalBinderConnection cpmConnection = null;
+
+    private volatile boolean playerReleased = false;
 
     public void setCmcdConfigurationFactory(CmcdConfiguration.Factory factory) {
         this.cmcdConfigurationFactory = factory;
@@ -825,6 +827,7 @@ public class ReactExoplayerView extends FrameLayout implements
         return () -> {
             new Handler(Looper.getMainLooper()).post(() -> {
                 Log.d(TAG, "Running Player Post-Initialization");
+                if(playerReleased) return;
 
                 boolean postInitSuccessful = postInitializePlayerCore(self, runningSource);
                 if(!postInitSuccessful) return;
@@ -897,14 +900,17 @@ public class ReactExoplayerView extends FrameLayout implements
      * @return true if post-initializtion was succesful, false if not
      */
     private boolean postInitializePlayerCore(ReactExoplayerView self, Source runningSource){
-        Log.d(TAG, "Switched player to CPM from REV " + this);
+        Log.d(TAG, "Switched player to CPM from REV on thread " + Thread.currentThread());
+        if(playerReleased) return false;
 
         ExoTrackSelection.Factory videoTrackSelectionFactory = new AdaptiveTrackSelection.Factory();
         self.trackSelector = new DefaultTrackSelector(getContext(), videoTrackSelectionFactory);
         self.trackSelector.setParameters(trackSelector.buildUponParameters()
                 .setMaxVideoBitrate(maxBitRate == 0 ? Integer.MAX_VALUE : maxBitRate));
 
-        if(!runningSource.getUseCentralPlayer()) {
+
+        CentralizedPlaybackManager.LocalBinderConnection connection = cpmConnection;
+        if(!runningSource.getUseCentralPlayer() || connection == null) {
             DefaultAllocator allocator = new DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE);
             RNVLoadControl loadControl = new RNVLoadControl(
                     allocator,
@@ -930,7 +936,7 @@ public class ReactExoplayerView extends FrameLayout implements
                     .setMediaSourceFactory(mediaSourceFactory)
                     .build();
         }else {
-            player = cpmConnection.getInstance();
+            player = connection.getInstance();
         }
         if(player == null) return false;
 
@@ -964,6 +970,7 @@ public class ReactExoplayerView extends FrameLayout implements
         cpmConnection = new CentralizedPlaybackManager.LocalBinderConnection();
         Intent intent = new Intent(themedReactContext, CentralizedPlaybackManager.class);
         boolean serviceBound = themedReactContext.bindService(intent, cpmConnection, Context.BIND_AUTO_CREATE);
+        Log.i(TAG,"Finished Retrieving Player: " + themedReactContext + " " + cpmConnection);
     }
 
 
@@ -1371,88 +1378,101 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private void releasePlayer() {
-        Log.d(TAG,"Player released");
-        if (player != null) {
-            if(playbackServiceBinder != null) {
-                playbackServiceBinder.getService().unregisterPlayer(player);
-                themedReactContext.unbindService(playbackServiceConnection);
+        new Handler(Looper.getMainLooper()).post(() -> {
+            Log.d(TAG,"Player released");
+            playerReleased = true;
+
+            if (player != null) {
+                if(playbackServiceBinder != null) {
+                    playbackServiceBinder.getService().unregisterPlayer(player);
+                    themedReactContext.unbindService(playbackServiceConnection);
+                }
+
+                updateResumePosition();
+                if(!source.getUseCentralPlayer()){
+                    player.release();
+                }
+                player.removeListener(this);
+                PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
+                if (pipListenerUnsubscribe != null) {
+                    new Handler().post(pipListenerUnsubscribe);
+                }
+                trackSelector = null;
+
+                ReactNativeVideoManager.Companion.getInstance().onInstanceRemoved(instanceId, player);
+
+                CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerInitRunnable);
+                CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerPostInitRunnable);
+                //FIXME I think this check should work because for some reason, eventListener isn't always being initialized
+                if(eventListener != null) player.removeListener(eventListener);
+
+                player = null;
             }
 
-            updateResumePosition();
-            if(!source.getUseCentralPlayer()) player.release();
-            player.removeListener(this);
-            PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
-            if (pipListenerUnsubscribe != null) {
-                new Handler().post(pipListenerUnsubscribe);
+            if (adsLoader != null) {
+                adsLoader.release();
+                adsLoader = null;
             }
-            trackSelector = null;
+            progressHandler.removeMessages(SHOW_PROGRESS);
+            audioBecomingNoisyReceiver.removeListener();
+            pictureInPictureReceiver.removeListener();
+            bandwidthMeter.removeEventListener(this);
 
-            ReactNativeVideoManager.Companion.getInstance().onInstanceRemoved(instanceId, player);
-
-            CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerInitRunnable);
-            CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerPostInitRunnable);
-            player.removeListener(eventListener);
-
-            player = null;
-        }
-
-        if (adsLoader != null) {
-            adsLoader.release();
-            adsLoader = null;
-        }
-        progressHandler.removeMessages(SHOW_PROGRESS);
-        audioBecomingNoisyReceiver.removeListener();
-        pictureInPictureReceiver.removeListener();
-        bandwidthMeter.removeEventListener(this);
-
-        if (playerInitRunnable != null) {
-            CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerInitRunnable);
-            playerInitRunnable = null;
-        }
-
-        /*@Override
-        public void onAudioFocusChange(int focusChange) {
-            Activity activity = themedReactContext.getCurrentActivity();
-
-            switch (focusChange) {
-                case AudioManager.AUDIOFOCUS_LOSS:
-                    view.hasAudioFocus = false;
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
-                    if (activity != null) {
-                        activity.runOnUiThread(view::pausePlayback);
-                    }
-                    view.audioManager.abandonAudioFocus(this);
-                    break;
-                case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                    view.eventEmitter.onAudioFocusChanged.invoke(false);
-                    break;
-                case AudioManager.AUDIOFOCUS_GAIN:
-                    view.hasAudioFocus = true;
-                    view.eventEmitter.onAudioFocusChanged.invoke(true);
-                    break;
-                default:
-                    break;
+            if (playerInitRunnable != null) {
+                CentralizedPlaybackManager.getMainHandler().removeCallbacks(playerInitRunnable);
+                playerInitRunnable = null;
             }
 
-            if (view.player != null && activity != null) {
-                if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                    // Lower the volume
-                    if (!view.muted) {
-                        activity.runOnUiThread(() ->
-                                view.player.setVolume(view.audioVolume * 0.8f)
-                        );
-                    }
-                } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
-                    // Raise it back to normal
-                    if (!view.muted) {
-                        activity.runOnUiThread(() ->
-                                view.player.setVolume(view.audioVolume * 1)
-                        );
+            if(cpmConnection != null){
+                Log.i(TAG,"Unbinding Player: " + themedReactContext + " " + cpmConnection);
+                themedReactContext.unbindService(cpmConnection);
+                cpmConnection = null;
+            }
+
+            /*@Override
+            public void onAudioFocusChange(int focusChange) {
+                Activity activity = themedReactContext.getCurrentActivity();
+
+                switch (focusChange) {
+                    case AudioManager.AUDIOFOCUS_LOSS:
+                        view.hasAudioFocus = false;
+                        view.eventEmitter.onAudioFocusChanged.invoke(false);
+                        // FIXME this pause can cause issue if content doesn't have pause capability (can happen on live channel)
+                        if (activity != null) {
+                            activity.runOnUiThread(view::pausePlayback);
+                        }
+                        view.audioManager.abandonAudioFocus(this);
+                        break;
+                    case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                        view.eventEmitter.onAudioFocusChanged.invoke(false);
+                        break;
+                    case AudioManager.AUDIOFOCUS_GAIN:
+                        view.hasAudioFocus = true;
+                        view.eventEmitter.onAudioFocusChanged.invoke(true);
+                        break;
+                    default:
+                        break;
+                }
+
+                if (view.player != null && activity != null) {
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                        // Lower the volume
+                        if (!view.muted) {
+                            activity.runOnUiThread(() ->
+                                    view.player.setVolume(view.audioVolume * 0.8f)
+                            );
+                        }
+                    } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
+                        // Raise it back to normal
+                        if (!view.muted) {
+                            activity.runOnUiThread(() ->
+                                    view.player.setVolume(view.audioVolume * 1)
+                            );
+                        }
                     }
                 }
-            }
-        }*/
+            }*/
+        });
     }
 
     // Modern phone state callback for Android S+ (API 31+)
