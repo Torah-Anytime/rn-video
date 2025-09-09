@@ -75,17 +75,21 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
 
     private String NOTIFICATION_CHANEL_ID = "CPNM_SESSION_NOTIFICATION";
 
-    private Player player;
+    private Player player = null;
+    private MediaSession mediaSession = null;
 
 
     @SuppressLint("ForegroundServiceType")
     public void setup(Player player){
         Log.i(TAG,"CPNM created with player " + player);
+        if(this.player != null && player != this.player){
+            removePreviousNotification();
+        }
         this.player = player;
 
 
         //FIXME Session ID Must Be Unique
-        MediaSession mediaSession = new MediaSession.Builder(this, player)
+        mediaSession = new MediaSession.Builder(this, player)
                 .setId("CPNMService_" + player.hashCode())
                 .setCallback(new VideoPlaybackCallback())
                 .setCustomLayout(ImmutableList.of(seekForwardBtn, seekBackwardBtn))
@@ -114,19 +118,25 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     @Override
     public IBinder onBind(@Nullable Intent intent) {
         super.onBind(intent);
+        Log.d(TAG,"CPNM Bind");
         return binder;
     }
 
     @Override
-    public void onDestroy() {
-        super.onDestroy();
-        Log.i(TAG,"CPNM destroyed");
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        manager.cancel(player.hashCode());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
-        }
+    public boolean onUnbind(Intent intent) {
+        Log.d(TAG,"CPNM Unbind");
+        removeSession(mediaSession);
         stopSelf();
+        return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.i(TAG,"CPNM destroyed");
+        super.onDestroy();
+        removePreviousNotification();
+        this.mediaSession = null;
+        this.player = null;
     }
 
     @Override
@@ -158,6 +168,14 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         }
 
         manager.notify(player.hashCode(), notification);
+    }
+
+    private void removePreviousNotification(){
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        manager.cancel(player.hashCode());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
+        }
     }
 
     private Notification createPlaceholderNotification(){

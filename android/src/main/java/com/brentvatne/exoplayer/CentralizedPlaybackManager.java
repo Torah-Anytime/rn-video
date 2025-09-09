@@ -114,7 +114,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
                 .setMediaSourceFactory(getCustomMediaSourceFactory())
                 .build();
         this.player.setAudioAttributes(AudioAttributes.DEFAULT,true);
-        startNotificationBindingListener();
     }
 
     private MediaSource.Factory getCustomMediaSourceFactory(){
@@ -259,12 +258,17 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public IBinder onBind(Intent intent) {
         Log.d(TAG,"Binding client to CentralizedPlaybackManager");
+        startNotificationBindingListener();
         return binder;
     }
 
     @Override
     public boolean onUnbind(Intent intent) {
         Log.d(TAG, "Unbinding client to CentralizedPlaybackManager");
+        synchronized (notificationsLock){
+            if(notificationServiceConnection != null) unbindService(notificationServiceConnection);
+            player.removeListener(notificationsBindingListener);
+        }
         return false;
     }
 
@@ -277,10 +281,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     @Override
     public void onDestroy() {
-        synchronized (notificationsLock){
-            if(notificationServiceConnection != null) unbindService(notificationServiceConnection);
-            player.removeListener(notificationsBindingListener);
-        }
         synchronized (CentralizedPlaybackManager.class) {
             super.onDestroy();
             instance = null;
