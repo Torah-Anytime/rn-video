@@ -73,6 +73,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     private final CommandButton seekBackwardBtn = new CommandButton.Builder().setDisplayName("backward").setSessionCommand(commandSeekBackward).setIconResId(androidx.media3.ui.R.drawable.exo_notification_rewind).build();
     private Player player = null;
     private MediaSession mediaSession = null;
+    private boolean isForegroundServiceActive = false;
 
     /**
      * Sets up notification management for the specified player.
@@ -106,7 +107,6 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         }
         this.player = player;
 
-
         //FIXME Session ID Must Be Unique
         mediaSession = new MediaSession.Builder(this, player).setId("CPNMService_" + player.hashCode()).setCallback(new VideoPlaybackCallback()).setCustomLayout(ImmutableList.of(seekForwardBtn, seekBackwardBtn)).build();
 
@@ -121,6 +121,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
                 return;
             }
             startForeground(player.hashCode(), notification);
+            isForegroundServiceActive = true;
         }
     }
 
@@ -149,6 +150,13 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     @Override
     public void onDestroy() {
         Log.i(TAG, "CPNM destroyed");
+
+        // Stop foreground service before cleaning up
+        if (isForegroundServiceActive) {
+            stopForeground(true);
+            isForegroundServiceActive = false;
+        }
+
         super.onDestroy();
         removePreviousNotification();
         this.mediaSession = null;
@@ -178,12 +186,19 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
      * @param startInForegroundRequired Whether the notification should start as foreground
      * @see #shouldShowNotification()
      */
+    @SuppressLint("ForegroundServiceType")
     @Override
     public void onUpdateNotification(@NonNull MediaSession session, boolean startInForegroundRequired) {
         if (!shouldShowNotification()) {
             Log.d(TAG, "Skipping notification update - external controller active");
+            // If we were showing notifications but now shouldn't, stop foreground service
+            if (isForegroundServiceActive) {
+                stopForeground(true);
+                isForegroundServiceActive = false;
+            }
             return;
         }
+
         Log.d(TAG, "Notification updated");
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -198,18 +213,37 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
             return;
         }
 
-        manager.notify(player.hashCode(), notification);
+        if (startInForegroundRequired && !isForegroundServiceActive) {
+            startForeground(player.hashCode(), notification);
+            isForegroundServiceActive = true;
+        } else {
+            manager.notify(player.hashCode(), notification);
+        }
     }
 
     /**
      * Removes any existing notifications for the current player.
      * Used when switching players or cleaning up resources.
+     *
+     * Note: Does not delete the notification channel if the service is running
+     * as a foreground service, as this would cause a SecurityException.
      */
     private void removePreviousNotification() {
+        if (player == null) {
+            return;
+        }
+
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         manager.cancel(player.hashCode());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
+
+        // Only delete the notification channel if we're not running as a foreground service
+        // Android doesn't allow deleting a channel while a foreground service is using it
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isForegroundServiceActive) {
+            try {
+                manager.deleteNotificationChannel(NOTIFICATION_CHANEL_ID);
+            } catch (SecurityException e) {
+                Log.w(TAG, "Could not delete notification channel - service may still be in foreground", e);
+            }
         }
     }
 
