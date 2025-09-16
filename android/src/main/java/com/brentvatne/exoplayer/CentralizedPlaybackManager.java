@@ -16,6 +16,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.AuxEffectInfo;
@@ -62,6 +63,7 @@ import android.app.Service;
 import com.google.common.util.concurrent.SettableFuture;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -78,18 +80,12 @@ import java.util.function.Supplier;
 public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private static final String TAG = "CentralizedPlaybackManager";
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
-
-    private final long COMMUNICATION_WAIT = 30000;
-
-    private ExoPlayer player;
-    private final IBinder binder = new LocalBinder();
-
-    private static volatile CentralizedPlaybackManager instance = null;
-
     private final static boolean logAllMethodCalls = false;
-
+    private static volatile CentralizedPlaybackManager instance = null;
+    private final IBinder binder = new LocalBinder();
     //Notifications
     private final Object notificationsLock = new Object();
+    private ExoPlayer player;
     private Player.Listener notificationsBindingListener = null;
     private CentralizedPlaybackNotificationManager.CPNMBinder cpnmBinder = null;
     private ServiceConnection notificationServiceConnection = null;
@@ -97,11 +93,20 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
     //===== Initialization =====
 
-    public CentralizedPlaybackManager(){
-        Log.d(TAG,"CPM Instance Created");
+    public CentralizedPlaybackManager() {
+        Log.d(TAG, "CPM Instance Created");
     }
 
-    private void setupPlayer(){
+    /**
+     * Get the main handler of this object, so other parts of the application can run code on the same
+     *
+     * @return the instance's mainHandler
+     */
+    public static Handler getMainHandler() {
+        return mainHandler;
+    }
+
+    private void setupPlayer() {
         // Ensure we're on the main thread
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(this::setupPlayer);
@@ -110,42 +115,44 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
 
         // Build the player
         Log.d(TAG, "Setting up the player on " + this.getApplicationContext());
-        this.player = new ExoPlayer.Builder(this)
-                .setMediaSourceFactory(getCustomMediaSourceFactory())
-                .build();
-        this.player.setAudioAttributes(AudioAttributes.DEFAULT,true);
+        this.player = new ExoPlayer.Builder(this).setMediaSourceFactory(getCustomMediaSourceFactory()).build();
+        this.player.setAudioAttributes(AudioAttributes.DEFAULT, true);
     }
 
-    private MediaSource.Factory getCustomMediaSourceFactory(){
+    //===== Notification Management =====
+
+    private MediaSource.Factory getCustomMediaSourceFactory() {
         DataSource.Factory dsFactory = new DefaultDataSource.Factory(getApplicationContext());
         ProgressiveMediaSource.Factory defaultFactory = new ProgressiveMediaSource.Factory(dsFactory);
 
         return new MediaSource.Factory() {
+            @NonNull
             @Override
-            public MediaSource.Factory setDrmSessionManagerProvider(DrmSessionManagerProvider drmSessionManagerProvider) {
+            public MediaSource.Factory setDrmSessionManagerProvider(@NonNull DrmSessionManagerProvider drmSessionManagerProvider) {
                 return defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider);
             }
 
+            @NonNull
             @Override
-            public MediaSource.Factory setLoadErrorHandlingPolicy(LoadErrorHandlingPolicy loadErrorHandlingPolicy) {
+            public MediaSource.Factory setLoadErrorHandlingPolicy(@NonNull LoadErrorHandlingPolicy loadErrorHandlingPolicy) {
                 return defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy);
             }
 
+            @NonNull
             @Override
             public int[] getSupportedTypes() {
                 return defaultFactory.getSupportedTypes();
             }
 
+            @NonNull
             @Override
-            public MediaSource createMediaSource(MediaItem mediaItem) {
+            public MediaSource createMediaSource(@NonNull MediaItem mediaItem) {
                 return defaultFactory.createMediaSource(mediaItem);
             }
         };
     }
 
-    //===== Notification Management =====
-
-    private void startNotificationBindingListener(){
+    private void startNotificationBindingListener() {
         this.notificationsBindingListener = new Listener() {
             @Override
             public void onMediaItemTransition(@Nullable MediaItem mediaItem, int reason) {
@@ -153,7 +160,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
                     if (mediaItem == null) {
                         unbindService(notificationServiceConnection);
                         notificationServiceConnection = null;
-                    } else if (notificationServiceConnection == null){
+                    } else if (notificationServiceConnection == null) {
                         // Build the notification manager
                         notificationServiceConnection = new ServiceConnection() {
                             @Override
@@ -191,73 +198,10 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.addListener(this.notificationsBindingListener);
     }
 
-
-    //===== Binding and Lifecycle =====
-    public class LocalBinder extends Binder{
-        public CentralizedPlaybackManager getInstance(){
-            synchronized (CentralizedPlaybackManager.class) {
-                Log.d(TAG,"Instance requested from LocalBinder");
-                if (instance == null) {
-                    instance = CentralizedPlaybackManager.this;
-                }
-                return instance;
-            }
-        }
-    }
-
-    public static class LocalBinderConnection implements ServiceConnection{
-        private CentralizedPlaybackManager localInstance = null;
-        private final Object lock = new Object();
-
-        @Override
-        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
-            Log.d(TAG,"Connection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
-            synchronized (lock) {
-                LocalBinder localBinder = (LocalBinder) iBinder;
-                localInstance = localBinder.getInstance();
-                lock.notifyAll();
-            }
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName componentName) {
-            Log.d(TAG,"Disconnection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
-            synchronized (lock) {
-                localInstance = null;
-                lock.notifyAll();
-            }
-        }
-
-        public CentralizedPlaybackManager getInstance(){
-            Log.d(TAG,"Instance requested from ServiceConnection");
-            synchronized (lock) {
-                return localInstance;
-            }
-        }
-
-        public SettableFuture<CentralizedPlaybackManager> getInstanceFuture(){
-            SettableFuture<CentralizedPlaybackManager> result = SettableFuture.create();
-            ExecutorService executor = Executors.newSingleThreadExecutor();
-            executor.execute(() -> {
-                synchronized (lock) {
-                    while (localInstance == null) {
-                        try {
-                            lock.wait();
-                        } catch (InterruptedException e) {
-                            Log.w(TAG, "Thread interrupted while waiting for localInstance to become not null, returning localInstance (probably null)");
-                        }
-                    }
-                    result.set(localInstance);
-                }
-            });
-            return result;
-        }
-    }
-
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
-        Log.d(TAG,"Binding client to CentralizedPlaybackManager");
+        Log.d(TAG, "Binding client to CentralizedPlaybackManager");
         startNotificationBindingListener();
         return binder;
     }
@@ -265,8 +209,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public boolean onUnbind(Intent intent) {
         Log.d(TAG, "Unbinding client to CentralizedPlaybackManager");
-        synchronized (notificationsLock){
-            if(notificationServiceConnection != null) unbindService(notificationServiceConnection);
+        synchronized (notificationsLock) {
+            if (notificationServiceConnection != null) unbindService(notificationServiceConnection);
             player.removeListener(notificationsBindingListener);
         }
         return false;
@@ -289,20 +233,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         Log.d(TAG, "CentralizedPlaybackManager destroyed");
     }
 
-    //===== Misc Public API =====
-
-    /**
-     * Get the main handler of this object, so other parts of the application can run code on the same
-     * @return the instance's mainHandler
-     */
-    public static Handler getMainHandler() {
-        return mainHandler;
-    }
-
-
-    //===== Util =====
-
-    private Object convertToMainThreadTask(Supplier<Object> operation){
+    private Object convertToMainThreadTask(Supplier<Object> operation) {
         try {
             CountDownLatch lock = new CountDownLatch(1);
             AtomicReference<Object> result = new AtomicReference<>();
@@ -310,27 +241,33 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
                 result.set(operation.get());
                 lock.countDown();
             });
+            long COMMUNICATION_WAIT = 30000;
             boolean completed = lock.await(COMMUNICATION_WAIT, TimeUnit.MILLISECONDS);
-            if(!completed) throw new InterruptedException("Timed out when communicating with internal player");
+            if (!completed || result.get() == null)
+                throw new InterruptedException("Timed out when communicating with internal player");
             return result.get();
         } catch (InterruptedException e) {
-            Log.e(TAG,"Interrupted when contacting CentralPlaybackManager internal player: " + e.getMessage() + ", returning null");
-            return null;
+            Log.e(TAG, "Interrupted when contacting CentralPlaybackManager internal player: " + e.getMessage() + ", returning null");
+            return new Object();
         }
     }
 
-    private void logMethodCall(String methodName){
-        if(logAllMethodCalls && !methodName.startsWith("get")) Log.d(TAG,"Method Called: " + methodName);
+    //===== Misc Public API =====
+
+    private void logMethodCall(String methodName) {
+        if (logAllMethodCalls && !methodName.startsWith("get"))
+            Log.d(TAG, "Method Called: " + methodName);
     }
 
-    //===== Overrides =====
+
+    //===== Util =====
 
     @Nullable
     @Override
     public ExoPlaybackException getPlayerError() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-           return (ExoPlaybackException) convertToMainThreadTask(() -> player.getPlayerError());
-        }else {
+            return (ExoPlaybackException) convertToMainThreadTask(() -> player.getPlayerError());
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlayerError();
         }
@@ -346,6 +283,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.play();
     }
 
+    //===== Overrides =====
+
     @Override
     public void pause() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
@@ -354,6 +293,16 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.pause();
+    }
+
+    @Override
+    public boolean getPlayWhenReady() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::getPlayWhenReady);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getPlayWhenReady();
+        }
     }
 
     @Override
@@ -367,12 +316,12 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public boolean getPlayWhenReady() {
+    public int getRepeatMode() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (boolean) convertToMainThreadTask(this::getPlayWhenReady);
-        }else {
+            return (int) convertToMainThreadTask(this::getRepeatMode);
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getPlayWhenReady();
+            return player.getRepeatMode();
         }
     }
 
@@ -387,12 +336,12 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public int getRepeatMode() {
+    public boolean getShuffleModeEnabled() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (int) convertToMainThreadTask(this::getRepeatMode);
-        }else {
+            return (boolean) convertToMainThreadTask(this::getShuffleModeEnabled);
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getRepeatMode();
+            return player.getShuffleModeEnabled();
         }
     }
 
@@ -407,20 +356,10 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public boolean getShuffleModeEnabled() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (boolean) convertToMainThreadTask(this::getShuffleModeEnabled);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getShuffleModeEnabled();
-        }
-    }
-
-    @Override
     public boolean isLoading() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isLoading);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isLoading();
         }
@@ -459,18 +398,18 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public void seekTo(int mediaItemIndex, long positionMs) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> this.seekTo(mediaItemIndex,positionMs));
+            mainHandler.post(() -> this.seekTo(mediaItemIndex, positionMs));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.seekTo(mediaItemIndex,positionMs);
+        player.seekTo(mediaItemIndex, positionMs);
     }
 
     @Override
     public long getSeekBackIncrement() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getSeekBackIncrement);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSeekBackIncrement();
         }
@@ -490,7 +429,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getSeekForwardIncrement() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getSeekForwardIncrement);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSeekForwardIncrement();
         }
@@ -510,7 +449,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean hasPrevious() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasPrevious);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasPrevious();
         }
@@ -520,7 +459,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean hasPreviousWindow() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasPreviousWindow);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasPreviousWindow();
         }
@@ -530,7 +469,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean hasPreviousMediaItem() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasPreviousMediaItem);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasPreviousMediaItem();
         }
@@ -570,7 +509,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getMaxSeekToPreviousPosition() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getMaxSeekToPreviousPosition);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMaxSeekToPreviousPosition();
         }
@@ -590,7 +529,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean hasNext() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasNext);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasNext();
         }
@@ -600,7 +539,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean hasNextWindow() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasNextWindow);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasNextWindow();
         }
@@ -610,7 +549,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean hasNextMediaItem() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::hasNextMediaItem);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.hasNextMediaItem();
         }
@@ -657,16 +596,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setPlaybackParameters(PlaybackParameters playbackParameters) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> setPlaybackParameters(playbackParameters));
-            return;
-        }
-        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.setPlaybackParameters(playbackParameters);
-    }
-
-    @Override
     public void setPlaybackSpeed(float speed) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setPlaybackSpeed(speed));
@@ -676,14 +605,25 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.setPlaybackSpeed(speed);
     }
 
+    @NonNull
     @Override
     public PlaybackParameters getPlaybackParameters() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (PlaybackParameters) convertToMainThreadTask(this::getPlaybackParameters);
-        }else{
+            return (PlaybackParameters) Objects.requireNonNull(convertToMainThreadTask(this::getPlaybackParameters));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackParameters();
         }
+    }
+
+    @Override
+    public void setPlaybackParameters(@NonNull PlaybackParameters playbackParameters) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setPlaybackParameters(playbackParameters));
+            return;
+        }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+        player.setPlaybackParameters(playbackParameters);
     }
 
     @Override
@@ -701,7 +641,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public AudioComponent getAudioComponent() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (AudioComponent) convertToMainThreadTask(this::getAudioComponent);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioComponent();
         }
@@ -712,7 +652,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public VideoComponent getVideoComponent() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (VideoComponent) convertToMainThreadTask(this::getVideoComponent);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoComponent();
         }
@@ -723,7 +663,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public TextComponent getTextComponent() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (TextComponent) convertToMainThreadTask(this::getTextComponent);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTextComponent();
         }
@@ -734,14 +674,14 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public DeviceComponent getDeviceComponent() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (DeviceComponent) convertToMainThreadTask(this::getDeviceComponent);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDeviceComponent();
         }
     }
 
     @Override
-    public void addAudioOffloadListener(AudioOffloadListener listener) {
+    public void addAudioOffloadListener(@NonNull AudioOffloadListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addAudioOffloadListener(listener));
             return;
@@ -751,7 +691,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void removeAudioOffloadListener(AudioOffloadListener listener) {
+    public void removeAudioOffloadListener(@NonNull AudioOffloadListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> removeAudioOffloadListener(listener));
             return;
@@ -760,18 +700,19 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.removeAudioOffloadListener(listener);
     }
 
+    @NonNull
     @Override
     public AnalyticsCollector getAnalyticsCollector() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (AnalyticsCollector) convertToMainThreadTask(this::getAnalyticsCollector);
-        }else{
+            return (AnalyticsCollector) Objects.requireNonNull(convertToMainThreadTask(this::getAnalyticsCollector));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAnalyticsCollector();
         }
     }
 
     @Override
-    public void addAnalyticsListener(AnalyticsListener listener) {
+    public void addAnalyticsListener(@NonNull AnalyticsListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addAnalyticsListener(listener));
             return;
@@ -781,7 +722,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void removeAnalyticsListener(AnalyticsListener listener) {
+    public void removeAnalyticsListener(@NonNull AnalyticsListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> removeAnalyticsListener(listener));
             return;
@@ -794,7 +735,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getRendererCount() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getRendererCount);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getRendererCount();
         }
@@ -804,17 +745,18 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getRendererType(int index) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(() -> getRendererType(index));
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getRendererType(index);
         }
     }
 
+    @NonNull
     @Override
     public Renderer getRenderer(int index) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (Renderer) convertToMainThreadTask(() -> getRenderer(index));
-        }else{
+            return (Renderer) Objects.requireNonNull(convertToMainThreadTask(() -> getRenderer(index)));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getRenderer(index);
         }
@@ -825,54 +767,58 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public TrackSelector getTrackSelector() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (TrackSelector) convertToMainThreadTask(this::getTrackSelector);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTrackSelector();
         }
     }
 
+    @NonNull
     @Override
     public TrackGroupArray getCurrentTrackGroups() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (TrackGroupArray) convertToMainThreadTask(this::getCurrentTrackGroups);
-        }else{
+            return (TrackGroupArray) Objects.requireNonNull(convertToMainThreadTask(this::getCurrentTrackGroups));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTrackGroups();
         }
     }
 
+    @NonNull
     @Override
     public TrackSelectionArray getCurrentTrackSelections() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (TrackSelectionArray) convertToMainThreadTask(this::getCurrentTrackSelections);
-        }else{
+            return (TrackSelectionArray) Objects.requireNonNull(convertToMainThreadTask(this::getCurrentTrackSelections));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTrackSelections();
         }
     }
 
+    @NonNull
     @Override
     public Looper getPlaybackLooper() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (Looper) convertToMainThreadTask(this::getPlaybackLooper);
-        }else{
+            return (Looper) Objects.requireNonNull(convertToMainThreadTask(this::getPlaybackLooper));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackLooper();
         }
     }
 
+    @NonNull
     @Override
     public Clock getClock() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (Clock) convertToMainThreadTask(this::getClock);
-        }else{
+            return (Clock) Objects.requireNonNull(convertToMainThreadTask(this::getClock));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getClock();
         }
     }
 
     @Override
-    public void prepare(MediaSource mediaSource) {
+    public void prepare(@NonNull MediaSource mediaSource) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> prepare(mediaSource));
             return;
@@ -882,7 +828,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void prepare(MediaSource mediaSource, boolean resetPosition, boolean resetState) {
+    public void prepare(@NonNull MediaSource mediaSource, boolean resetPosition, boolean resetState) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> prepare(mediaSource, resetPosition, resetState));
             return;
@@ -892,7 +838,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaSources(List<MediaSource> mediaSources) {
+    public void setMediaSources(@NonNull List<MediaSource> mediaSources) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaSources(mediaSources));
             return;
@@ -902,7 +848,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaSources(List<MediaSource> mediaSources, boolean resetPosition) {
+    public void setMediaSources(@NonNull List<MediaSource> mediaSources, boolean resetPosition) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaSources(mediaSources, resetPosition));
             return;
@@ -912,7 +858,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaSources(List<MediaSource> mediaSources, int startMediaItemIndex, long startPositionMs) {
+    public void setMediaSources(@NonNull List<MediaSource> mediaSources, int startMediaItemIndex, long startPositionMs) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaSources(mediaSources, startMediaItemIndex, startPositionMs));
             return;
@@ -922,7 +868,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaSource(MediaSource mediaSource) {
+    public void setMediaSource(@NonNull MediaSource mediaSource) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaSource(mediaSource));
             return;
@@ -932,7 +878,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaSource(MediaSource mediaSource, long startPositionMs) {
+    public void setMediaSource(@NonNull MediaSource mediaSource, long startPositionMs) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaSource(mediaSource, startPositionMs));
             return;
@@ -942,7 +888,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaSource(MediaSource mediaSource, boolean resetPosition) {
+    public void setMediaSource(@NonNull MediaSource mediaSource, boolean resetPosition) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaSource(mediaSource, resetPosition));
             return;
@@ -952,7 +898,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaSource(MediaSource mediaSource) {
+    public void addMediaSource(@NonNull MediaSource mediaSource) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addMediaSource(mediaSource));
             return;
@@ -962,9 +908,9 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaSource(int index, MediaSource mediaSource) {
+    public void addMediaSource(int index, @NonNull MediaSource mediaSource) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> addMediaSource(index,mediaSource));
+            mainHandler.post(() -> addMediaSource(index, mediaSource));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
@@ -972,7 +918,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaSources(List<MediaSource> mediaSources) {
+    public void addMediaSources(@NonNull List<MediaSource> mediaSources) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addMediaSources(mediaSources));
             return;
@@ -982,17 +928,17 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaSources(int index, List<MediaSource> mediaSources) {
+    public void addMediaSources(int index, @NonNull List<MediaSource> mediaSources) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> addMediaSources(index,mediaSources));
+            mainHandler.post(() -> addMediaSources(index, mediaSources));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.addMediaSources(index,mediaSources);
+        player.addMediaSources(index, mediaSources);
     }
 
     @Override
-    public void setShuffleOrder(ShuffleOrder shuffleOrder) {
+    public void setShuffleOrder(@NonNull ShuffleOrder shuffleOrder) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setShuffleOrder(shuffleOrder));
             return;
@@ -1001,8 +947,19 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.setShuffleOrder(shuffleOrder);
     }
 
+    @NonNull
     @Override
-    public void setPreloadConfiguration(PreloadConfiguration preloadConfiguration) {
+    public PreloadConfiguration getPreloadConfiguration() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (PreloadConfiguration) Objects.requireNonNull(convertToMainThreadTask(this::getPreloadConfiguration));
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getPreloadConfiguration();
+        }
+    }
+
+    @Override
+    public void setPreloadConfiguration(@NonNull PreloadConfiguration preloadConfiguration) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setPreloadConfiguration(preloadConfiguration));
             return;
@@ -1011,28 +968,19 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.setPreloadConfiguration(preloadConfiguration);
     }
 
-    @Override
-    public PreloadConfiguration getPreloadConfiguration() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (PreloadConfiguration) convertToMainThreadTask(this::getPreloadConfiguration);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getPreloadConfiguration();
-        }
-    }
-
+    @NonNull
     @Override
     public Looper getApplicationLooper() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Looper) convertToMainThreadTask(this::getApplicationLooper);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getApplicationLooper();
         }
     }
 
     @Override
-    public void addListener(Player.Listener listener) {
+    public void addListener(@NonNull Player.Listener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addListener(listener));
             return;
@@ -1042,7 +990,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void removeListener(Player.Listener listener) {
+    public void removeListener(@NonNull Player.Listener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> removeListener(listener));
             return;
@@ -1052,7 +1000,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaItems(List<MediaItem> mediaItems) {
+    public void setMediaItems(@NonNull List<MediaItem> mediaItems) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaItems(mediaItems));
             return;
@@ -1062,7 +1010,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaItems(List<MediaItem> mediaItems, boolean resetPosition) {
+    public void setMediaItems(@NonNull List<MediaItem> mediaItems, boolean resetPosition) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaItems(mediaItems, resetPosition));
             return;
@@ -1072,7 +1020,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaItems(List<MediaItem> mediaItems, int startIndex, long startPositionMs) {
+    public void setMediaItems(@NonNull List<MediaItem> mediaItems, int startIndex, long startPositionMs) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaItems(mediaItems, startIndex, startPositionMs));
             return;
@@ -1082,7 +1030,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaItem(MediaItem mediaItem) {
+    public void setMediaItem(@NonNull MediaItem mediaItem) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaItem(mediaItem));
             return;
@@ -1092,7 +1040,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaItem(MediaItem mediaItem, long startPositionMs) {
+    public void setMediaItem(@NonNull MediaItem mediaItem, long startPositionMs) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaItem(mediaItem, startPositionMs));
             return;
@@ -1102,7 +1050,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setMediaItem(MediaItem mediaItem, boolean resetPosition) {
+    public void setMediaItem(@NonNull MediaItem mediaItem, boolean resetPosition) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setMediaItem(mediaItem, resetPosition));
             return;
@@ -1112,7 +1060,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaItem(MediaItem mediaItem) {
+    public void addMediaItem(@NonNull MediaItem mediaItem) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addMediaItem(mediaItem));
             return;
@@ -1122,7 +1070,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaItem(int index, MediaItem mediaItem) {
+    public void addMediaItem(int index, @NonNull MediaItem mediaItem) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addMediaItem(index, mediaItem));
             return;
@@ -1132,7 +1080,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaItems(List<MediaItem> mediaItems) {
+    public void addMediaItems(@NonNull List<MediaItem> mediaItems) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> addMediaItems(mediaItems));
             return;
@@ -1142,53 +1090,53 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void addMediaItems(int index, List<MediaItem> mediaItems) {
+    public void addMediaItems(int index, @NonNull List<MediaItem> mediaItems) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> addMediaItems(index,mediaItems));
+            mainHandler.post(() -> addMediaItems(index, mediaItems));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.addMediaItems(index,mediaItems);
+        player.addMediaItems(index, mediaItems);
     }
 
     @Override
     public void moveMediaItem(int currentIndex, int newIndex) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> moveMediaItem(currentIndex,newIndex));
+            mainHandler.post(() -> moveMediaItem(currentIndex, newIndex));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.moveMediaItem(currentIndex,newIndex);
+        player.moveMediaItem(currentIndex, newIndex);
     }
 
     @Override
     public void moveMediaItems(int fromIndex, int toIndex, int newIndex) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> moveMediaItems(fromIndex,toIndex,newIndex));
+            mainHandler.post(() -> moveMediaItems(fromIndex, toIndex, newIndex));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.moveMediaItems(fromIndex,toIndex,newIndex);
+        player.moveMediaItems(fromIndex, toIndex, newIndex);
     }
 
     @Override
-    public void replaceMediaItem(int index, MediaItem mediaItem) {
+    public void replaceMediaItem(int index, @NonNull MediaItem mediaItem) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> replaceMediaItem(index,mediaItem));
+            mainHandler.post(() -> replaceMediaItem(index, mediaItem));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.replaceMediaItem(index,mediaItem);
+        player.replaceMediaItem(index, mediaItem);
     }
 
     @Override
-    public void replaceMediaItems(int fromIndex, int toIndex, List<MediaItem> mediaItems) {
+    public void replaceMediaItems(int fromIndex, int toIndex, @NonNull List<MediaItem> mediaItems) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> replaceMediaItems(fromIndex,toIndex,mediaItems));
+            mainHandler.post(() -> replaceMediaItems(fromIndex, toIndex, mediaItems));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.replaceMediaItems(fromIndex,toIndex,mediaItems);
+        player.replaceMediaItems(fromIndex, toIndex, mediaItems);
     }
 
     @Override
@@ -1204,11 +1152,11 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public void removeMediaItems(int fromIndex, int toIndex) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> removeMediaItems(fromIndex,toIndex));
+            mainHandler.post(() -> removeMediaItems(fromIndex, toIndex));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.removeMediaItems(fromIndex,toIndex);
+        player.removeMediaItems(fromIndex, toIndex);
     }
 
     @Override
@@ -1225,7 +1173,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isCommandAvailable(int command) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(() -> isCommandAvailable(command));
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCommandAvailable(command);
         }
@@ -1235,17 +1183,18 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean canAdvertiseSession() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::canAdvertiseSession);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.canAdvertiseSession();
         }
     }
 
+    @NonNull
     @Override
     public Commands getAvailableCommands() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Commands) convertToMainThreadTask(this::getAvailableCommands);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAvailableCommands();
         }
@@ -1265,7 +1214,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getPlaybackState() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPlaybackState);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackState();
         }
@@ -1275,7 +1224,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getPlaybackSuppressionReason() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPlaybackSuppressionReason);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaybackSuppressionReason();
         }
@@ -1285,9 +1234,19 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isPlaying() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isPlaying);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isPlaying();
+        }
+    }
+
+    @Override
+    public int getAudioSessionId() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getAudioSessionId);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getAudioSessionId();
         }
     }
 
@@ -1302,17 +1261,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public int getAudioSessionId() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (int) convertToMainThreadTask(this::getAudioSessionId);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getAudioSessionId();
-        }
-    }
-
-    @Override
-    public void setAuxEffectInfo(AuxEffectInfo auxEffectInfo) {
+    public void setAuxEffectInfo(@NonNull AuxEffectInfo auxEffectInfo) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setAuxEffectInfo(auxEffectInfo));
             return;
@@ -1342,6 +1291,16 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
+    public boolean getSkipSilenceEnabled() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::getSkipSilenceEnabled);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getSkipSilenceEnabled();
+        }
+    }
+
+    @Override
     public void setSkipSilenceEnabled(boolean skipSilenceEnabled) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setSkipSilenceEnabled(skipSilenceEnabled));
@@ -1352,23 +1311,23 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public boolean getSkipSilenceEnabled() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (boolean) convertToMainThreadTask(this::getSkipSilenceEnabled);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getSkipSilenceEnabled();
-        }
-    }
-
-    @Override
-    public void setVideoEffects(List<Effect> videoEffects) {
+    public void setVideoEffects(@NonNull List<Effect> videoEffects) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setVideoEffects(videoEffects));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVideoEffects(videoEffects);
+    }
+
+    @Override
+    public int getVideoScalingMode() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (int) convertToMainThreadTask(this::getVideoScalingMode);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getVideoScalingMode();
+        }
     }
 
     @Override
@@ -1382,12 +1341,12 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public int getVideoScalingMode() {
+    public int getVideoChangeFrameRateStrategy() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (int) convertToMainThreadTask(this::getVideoScalingMode);
-        }else{
+            return (int) convertToMainThreadTask(this::getVideoChangeFrameRateStrategy);
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getVideoScalingMode();
+            return player.getVideoChangeFrameRateStrategy();
         }
     }
 
@@ -1402,17 +1361,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public int getVideoChangeFrameRateStrategy() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (int) convertToMainThreadTask(this::getVideoChangeFrameRateStrategy);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getVideoChangeFrameRateStrategy();
-        }
-    }
-
-    @Override
-    public void setVideoFrameMetadataListener(VideoFrameMetadataListener listener) {
+    public void setVideoFrameMetadataListener(@NonNull VideoFrameMetadataListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setVideoFrameMetadataListener(listener));
             return;
@@ -1422,7 +1371,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void clearVideoFrameMetadataListener(VideoFrameMetadataListener listener) {
+    public void clearVideoFrameMetadataListener(@NonNull VideoFrameMetadataListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> clearVideoFrameMetadataListener(listener));
             return;
@@ -1432,7 +1381,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setCameraMotionListener(CameraMotionListener listener) {
+    public void setCameraMotionListener(@NonNull CameraMotionListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setCameraMotionListener(listener));
             return;
@@ -1442,7 +1391,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void clearCameraMotionListener(CameraMotionListener listener) {
+    public void clearCameraMotionListener(@NonNull CameraMotionListener listener) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> clearCameraMotionListener(listener));
             return;
@@ -1451,13 +1400,24 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.clearCameraMotionListener(listener);
     }
 
+    @NonNull
     @Override
-    public PlayerMessage createMessage(PlayerMessage.Target target) {
+    public PlayerMessage createMessage(@NonNull PlayerMessage.Target target) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (PlayerMessage) convertToMainThreadTask(() -> createMessage(target));
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.createMessage(target);
+        }
+    }
+
+    @Override
+    public SeekParameters getSeekParameters() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (SeekParameters) convertToMainThreadTask(this::getSeekParameters);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getSeekParameters();
         }
     }
 
@@ -1472,16 +1432,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public SeekParameters getSeekParameters() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (SeekParameters) convertToMainThreadTask(this::getSeekParameters);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getSeekParameters();
-        }
-    }
-
-    @Override
     public void setForegroundMode(boolean foregroundMode) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setForegroundMode(foregroundMode));
@@ -1489,6 +1439,16 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setForegroundMode(foregroundMode);
+    }
+
+    @Override
+    public boolean getPauseAtEndOfMediaItems() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (boolean) convertToMainThreadTask(this::getPauseAtEndOfMediaItems);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getPauseAtEndOfMediaItems();
+        }
     }
 
     @Override
@@ -1501,22 +1461,12 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.setPauseAtEndOfMediaItems(pauseAtEndOfMediaItems);
     }
 
-    @Override
-    public boolean getPauseAtEndOfMediaItems() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (boolean) convertToMainThreadTask(this::getPauseAtEndOfMediaItems);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getPauseAtEndOfMediaItems();
-        }
-    }
-
     @Nullable
     @Override
     public Format getAudioFormat() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Format) convertToMainThreadTask(this::getAudioFormat);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioFormat();
         }
@@ -1527,7 +1477,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public Format getVideoFormat() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (Format) convertToMainThreadTask(this::getVideoFormat);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoFormat();
         }
@@ -1538,7 +1488,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public DecoderCounters getAudioDecoderCounters() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (DecoderCounters) convertToMainThreadTask(this::getAudioDecoderCounters);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioDecoderCounters();
         }
@@ -1549,7 +1499,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public DecoderCounters getVideoDecoderCounters() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (DecoderCounters) convertToMainThreadTask(this::getVideoDecoderCounters);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoDecoderCounters();
         }
@@ -1599,7 +1549,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isSleepingForOffload() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isSleepingForOffload);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isSleepingForOffload();
         }
@@ -1609,7 +1559,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isTunnelingEnabled() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isTunnelingEnabled);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isTunnelingEnabled();
         }
@@ -1625,28 +1575,30 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.release();
     }
 
+    @NonNull
     @Override
     public Tracks getCurrentTracks() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (Tracks) convertToMainThreadTask(this::getCurrentTracks);
-        }else{
+            return (Tracks) Objects.requireNonNull(convertToMainThreadTask(this::getCurrentTracks));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTracks();
         }
     }
 
+    @NonNull
     @Override
     public TrackSelectionParameters getTrackSelectionParameters() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (TrackSelectionParameters) convertToMainThreadTask(this::getTrackSelectionParameters);
-        }else{
+            return (TrackSelectionParameters) Objects.requireNonNull(convertToMainThreadTask(this::getTrackSelectionParameters));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTrackSelectionParameters();
         }
     }
 
     @Override
-    public void setTrackSelectionParameters(TrackSelectionParameters parameters) {
+    public void setTrackSelectionParameters(@NonNull TrackSelectionParameters parameters) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setTrackSelectionParameters(parameters));
             return;
@@ -1655,28 +1607,30 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.setTrackSelectionParameters(parameters);
     }
 
+    @NonNull
     @Override
     public MediaMetadata getMediaMetadata() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (MediaMetadata) convertToMainThreadTask(this::getMediaMetadata);
-        }else{
+            return (MediaMetadata) Objects.requireNonNull(convertToMainThreadTask(this::getMediaMetadata));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMediaMetadata();
         }
     }
 
+    @NonNull
     @Override
     public MediaMetadata getPlaylistMetadata() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (MediaMetadata) convertToMainThreadTask(this::getPlaylistMetadata);
-        }else{
+            return (MediaMetadata) Objects.requireNonNull(convertToMainThreadTask(this::getPlaylistMetadata));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPlaylistMetadata();
         }
     }
 
     @Override
-    public void setPlaylistMetadata(MediaMetadata mediaMetadata) {
+    public void setPlaylistMetadata(@NonNull MediaMetadata mediaMetadata) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post(() -> setPlaylistMetadata(mediaMetadata));
             return;
@@ -1690,17 +1644,18 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public Object getCurrentManifest() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return convertToMainThreadTask(this::getCurrentManifest);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentManifest();
         }
     }
 
+    @NonNull
     @Override
     public Timeline getCurrentTimeline() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (Timeline) convertToMainThreadTask(this::getCurrentTimeline);
-        }else{
+            return (Timeline) Objects.requireNonNull(convertToMainThreadTask(this::getCurrentTimeline));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentTimeline();
         }
@@ -1710,7 +1665,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getCurrentPeriodIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentPeriodIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentPeriodIndex();
         }
@@ -1720,7 +1675,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getCurrentWindowIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentWindowIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentWindowIndex();
         }
@@ -1730,7 +1685,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getCurrentMediaItemIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentMediaItemIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentMediaItemIndex();
         }
@@ -1740,7 +1695,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getNextWindowIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getNextWindowIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getNextWindowIndex();
         }
@@ -1750,7 +1705,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getNextMediaItemIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getNextMediaItemIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getNextMediaItemIndex();
         }
@@ -1760,7 +1715,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getPreviousWindowIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPreviousWindowIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPreviousWindowIndex();
         }
@@ -1770,7 +1725,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getPreviousMediaItemIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getPreviousMediaItemIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getPreviousMediaItemIndex();
         }
@@ -1781,7 +1736,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public MediaItem getCurrentMediaItem() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (MediaItem) convertToMainThreadTask(this::getCurrentMediaItem);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentMediaItem();
         }
@@ -1791,7 +1746,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getMediaItemCount() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getMediaItemCount);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMediaItemCount();
         }
@@ -1801,7 +1756,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public MediaItem getMediaItemAt(int index) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (MediaItem) convertToMainThreadTask(() -> getMediaItemAt(index));
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getMediaItemAt(index);
         }
@@ -1811,7 +1766,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getDuration() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getDuration);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDuration();
         }
@@ -1821,7 +1776,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getCurrentPosition() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getCurrentPosition);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentPosition();
         }
@@ -1831,7 +1786,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getBufferedPosition() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getBufferedPosition);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getBufferedPosition();
         }
@@ -1841,7 +1796,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getBufferedPercentage() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getBufferedPercentage);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getBufferedPercentage();
         }
@@ -1851,7 +1806,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getTotalBufferedDuration() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getTotalBufferedDuration);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getTotalBufferedDuration();
         }
@@ -1861,7 +1816,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isCurrentWindowDynamic() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentWindowDynamic);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentWindowDynamic();
         }
@@ -1871,7 +1826,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isCurrentMediaItemDynamic() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentMediaItemDynamic);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentMediaItemDynamic();
         }
@@ -1881,7 +1836,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isCurrentWindowLive() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentWindowLive);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentWindowLive();
         }
@@ -1891,7 +1846,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isCurrentMediaItemLive() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentMediaItemLive);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentMediaItemLive();
         }
@@ -1901,7 +1856,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getCurrentLiveOffset() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getCurrentLiveOffset);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentLiveOffset();
         }
@@ -1911,7 +1866,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isCurrentWindowSeekable() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentWindowSeekable);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentWindowSeekable();
         }
@@ -1921,7 +1876,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isCurrentMediaItemSeekable() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isCurrentMediaItemSeekable);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isCurrentMediaItemSeekable();
         }
@@ -1931,7 +1886,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean isPlayingAd() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isPlayingAd);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isPlayingAd();
         }
@@ -1941,7 +1896,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getCurrentAdGroupIndex() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentAdGroupIndex);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentAdGroupIndex();
         }
@@ -1951,7 +1906,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getCurrentAdIndexInAdGroup() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getCurrentAdIndexInAdGroup);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentAdIndexInAdGroup();
         }
@@ -1961,7 +1916,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getContentDuration() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getContentDuration);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getContentDuration();
         }
@@ -1971,7 +1926,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getContentPosition() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getContentPosition);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getContentPosition();
         }
@@ -1981,19 +1936,30 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public long getContentBufferedPosition() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (long) convertToMainThreadTask(this::getContentBufferedPosition);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getContentBufferedPosition();
         }
     }
 
+    @NonNull
     @Override
     public AudioAttributes getAudioAttributes() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (AudioAttributes) convertToMainThreadTask(this::getAudioAttributes);
-        }else{
+            return (AudioAttributes) Objects.requireNonNull(convertToMainThreadTask(this::getAudioAttributes));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getAudioAttributes();
+        }
+    }
+
+    @Override
+    public float getVolume() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            return (float) convertToMainThreadTask(this::getVolume);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.getVolume();
         }
     }
 
@@ -2005,16 +1971,6 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setVolume(volume);
-    }
-
-    @Override
-    public float getVolume() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (float) convertToMainThreadTask(this::getVolume);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.getVolume();
-        }
     }
 
     @Override
@@ -2107,41 +2063,45 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         player.clearVideoTextureView(textureView);
     }
 
+    @NonNull
     @Override
     public VideoSize getVideoSize() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (VideoSize) convertToMainThreadTask(this::getVideoSize);
-        }else{
+            return (VideoSize) Objects.requireNonNull(convertToMainThreadTask(this::getVideoSize));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getVideoSize();
         }
     }
 
+    @NonNull
     @Override
     public Size getSurfaceSize() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (Size) convertToMainThreadTask(this::getSurfaceSize);
-        }else{
+            return (Size) Objects.requireNonNull(convertToMainThreadTask(this::getSurfaceSize));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getSurfaceSize();
         }
     }
 
+    @NonNull
     @Override
     public CueGroup getCurrentCues() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (CueGroup) convertToMainThreadTask(this::getCurrentCues);
-        }else{
+            return (CueGroup) Objects.requireNonNull(convertToMainThreadTask(this::getCurrentCues));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getCurrentCues();
         }
     }
 
+    @NonNull
     @Override
     public DeviceInfo getDeviceInfo() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (DeviceInfo) convertToMainThreadTask(this::getDeviceInfo);
-        }else{
+            return (DeviceInfo) Objects.requireNonNull(convertToMainThreadTask(this::getDeviceInfo));
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDeviceInfo();
         }
@@ -2151,19 +2111,9 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public int getDeviceVolume() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (int) convertToMainThreadTask(this::getDeviceVolume);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.getDeviceVolume();
-        }
-    }
-
-    @Override
-    public boolean isDeviceMuted() {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            return (boolean) convertToMainThreadTask(this::isDeviceMuted);
-        }else{
-            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-            return player.isDeviceMuted();
         }
     }
 
@@ -2178,19 +2128,39 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setDeviceVolume(int volume, int flags) {
+    public boolean isDeviceMuted() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> setDeviceVolume(volume,flags));
+            return (boolean) convertToMainThreadTask(this::isDeviceMuted);
+        } else {
+            logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+            return player.isDeviceMuted();
+        }
+    }
+
+    @Override
+    public void setDeviceMuted(boolean muted) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setDeviceMuted(muted));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.setDeviceVolume(volume,flags);
+        player.setDeviceMuted(muted);
+    }
+
+    @Override
+    public void setDeviceVolume(int volume, int flags) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(() -> setDeviceVolume(volume, flags));
+            return;
+        }
+        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
+        player.setDeviceVolume(volume, flags);
     }
 
     @Override
     public void increaseDeviceVolume() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> increaseDeviceVolume());
+            mainHandler.post(this::increaseDeviceVolume);
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
@@ -2210,7 +2180,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     @Override
     public void decreaseDeviceVolume() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> decreaseDeviceVolume());
+            mainHandler.post(this::decreaseDeviceVolume);
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
@@ -2228,40 +2198,30 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     }
 
     @Override
-    public void setDeviceMuted(boolean muted) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> setDeviceMuted(muted));
-            return;
-        }
-        logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.setDeviceMuted(muted);
-    }
-
-    @Override
     public void setDeviceMuted(boolean muted, int flags) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> setDeviceMuted(muted,flags));
+            mainHandler.post(() -> setDeviceMuted(muted, flags));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.setDeviceMuted(muted,flags);
+        player.setDeviceMuted(muted, flags);
     }
 
     @Override
-    public void setAudioAttributes(AudioAttributes audioAttributes, boolean handleAudioFocus) {
+    public void setAudioAttributes(@NonNull AudioAttributes audioAttributes, boolean handleAudioFocus) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post(() -> setAudioAttributes(audioAttributes,handleAudioFocus));
+            mainHandler.post(() -> setAudioAttributes(audioAttributes, handleAudioFocus));
             return;
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
-        player.setAudioAttributes(audioAttributes,handleAudioFocus);
+        player.setAudioAttributes(audioAttributes, handleAudioFocus);
     }
 
     @Override
     public boolean isReleased() {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             return (boolean) convertToMainThreadTask(this::isReleased);
-        }else{
+        } else {
             logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
             return player.isReleased();
         }
@@ -2275,5 +2235,67 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         }
         logMethodCall(new Throwable().getStackTrace()[0].getMethodName());
         player.setImageOutput(imageOutput);
+    }
+
+    public static class LocalBinderConnection implements ServiceConnection {
+        private final Object lock = new Object();
+        private CentralizedPlaybackManager localInstance = null;
+
+        @Override
+        public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+            Log.d(TAG, "Connection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
+            synchronized (lock) {
+                LocalBinder localBinder = (LocalBinder) iBinder;
+                localInstance = localBinder.getInstance();
+                lock.notifyAll();
+            }
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName componentName) {
+            Log.d(TAG, "Disconnection from " + componentName.getClassName() + " to CentralizedPlaybackManager");
+            synchronized (lock) {
+                localInstance = null;
+                lock.notifyAll();
+            }
+        }
+
+        public CentralizedPlaybackManager getInstance() {
+            Log.d(TAG, "Instance requested from ServiceConnection");
+            synchronized (lock) {
+                return localInstance;
+            }
+        }
+
+        public SettableFuture<CentralizedPlaybackManager> getInstanceFuture() {
+            SettableFuture<CentralizedPlaybackManager> result = SettableFuture.create();
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            executor.execute(() -> {
+                synchronized (lock) {
+                    while (localInstance == null) {
+                        try {
+                            lock.wait();
+                        } catch (InterruptedException e) {
+                            Log.w(TAG, "Thread interrupted while waiting for localInstance to become not null, returning localInstance (probably null)");
+                        }
+                    }
+                    result.set(localInstance);
+                }
+            });
+            return result;
+        }
+    }
+
+    //===== Binding and Lifecycle =====
+    public class LocalBinder extends Binder {
+        public CentralizedPlaybackManager getInstance() {
+            synchronized (CentralizedPlaybackManager.class) {
+                Log.d(TAG, "Instance requested from LocalBinder");
+                if (instance == null) {
+                    instance = CentralizedPlaybackManager.this;
+                }
+                return instance;
+            }
+        }
     }
 }
