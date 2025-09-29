@@ -28,6 +28,7 @@ import androidx.media3.session.SessionCommand;
 import com.brentvatne.react.R;
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -163,9 +164,29 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         this.player = null;
     }
 
+    @SuppressLint("ForegroundServiceType")
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
-        createPlaceholderNotification();
+        // Create notification channel
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                    new NotificationChannel(NOTIFICATION_CHANEL_ID, NOTIFICATION_CHANEL_ID,
+                            NotificationManager.IMPORTANCE_LOW)
+            );
+        }
+
+        // Build placeholder notification
+        Notification placeholderNotification = new NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID)
+                .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
+                .setContentTitle(getString(R.string.media_playback_notification_title))
+                .setContentText(getString(R.string.media_playback_notification_text))
+                .build();
+
+        // CRITICAL: Must call startForeground() immediately
+        startForeground(1, placeholderNotification);
+        isForegroundServiceActive = true;
+
         return super.onStartCommand(intent, flags, startId);
     }
 
@@ -248,21 +269,6 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     }
 
     /**
-     * Creates a basic placeholder notification for the service.
-     * This ensures the service can start in foreground mode while
-     * the full media notification is being prepared.
-     */
-    private void createPlaceholderNotification() {
-        Log.d(TAG, "Placeholder notification created");
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANEL_ID, NOTIFICATION_CHANEL_ID, NotificationManager.IMPORTANCE_LOW));
-        }
-
-        new NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID).setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play).setContentTitle(getString(R.string.media_playback_notification_title)).setContentText(getString(R.string.media_playback_notification_text)).build();
-    }
-
-    /**
      * Determines whether this service should show media notifications.
      *
      * <p>This method implements the core logic for coordinating with external media services.
@@ -300,14 +306,28 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
      * @see UiModeManager#getCurrentModeType()
      */
     private boolean shouldShowNotification() {
-        // Don't show notifications if external controllers are active
-        if (mediaSession != null && !mediaSession.getConnectedControllers().isEmpty()) {
-            return false;
+        if (mediaSession != null) {
+            List<MediaSession.ControllerInfo> controllers = mediaSession.getConnectedControllers();
+
+            // Only hide notifications for specific external controllers
+            for (MediaSession.ControllerInfo controller : controllers) {
+                String packageName = controller.getPackageName();
+
+                // Only hide for known external controllers (Android Auto, car systems, etc.)
+                if (packageName.contains("android.auto") ||
+                        packageName.contains("car.") ||
+                        packageName.contains("automotive")) {
+                    Log.d(TAG, "External controller detected, hiding notification");
+                    return false;
+                }
+            }
         }
 
-        // Also check UI mode
+        // Check UI mode
         UiModeManager uiModeManager = (UiModeManager) getSystemService(Context.UI_MODE_SERVICE);
-        return uiModeManager.getCurrentModeType() != Configuration.UI_MODE_TYPE_CAR;
+        int currentMode = uiModeManager.getCurrentModeType();
+
+        return currentMode != Configuration.UI_MODE_TYPE_CAR;
     }
 
     /**
