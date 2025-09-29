@@ -335,7 +335,6 @@ public class ReactExoplayerView extends FrameLayout implements
     public ReactExoplayerView(ThemedReactContext context, ReactExoplayerConfig config) {
         this(context, config, null);
     }
-
     public ReactExoplayerView(ThemedReactContext context, ReactExoplayerConfig config, ExoPlayerFullscreenVideoActivity fullScreenPlayerView) {
         super(context);
         this.themedReactContext = context;
@@ -350,7 +349,7 @@ public class ReactExoplayerView extends FrameLayout implements
         createViews();
 
         themedReactContext.addLifecycleEventListener(this);
-        pipListenerUnsubscribe = PictureInPictureUtil.addLifecycleEventListener(context, this);
+        // PIP listener will be added when enterPictureInPictureOnLeave prop is set
         audioBecomingNoisyReceiver = new AudioBecomingNoisyReceiver(themedReactContext);
         pictureInPictureReceiver = new PictureInPictureReceiver(this, themedReactContext);
 
@@ -371,9 +370,11 @@ public class ReactExoplayerView extends FrameLayout implements
                 LayoutParams.MATCH_PARENT,
                 LayoutParams.MATCH_PARENT);
         exoPlayerView = new ExoPlayerView(getContext());
-        exoPlayerView.addOnLayoutChangeListener( (View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) ->
-                PictureInPictureUtil.applySourceRectHint(themedReactContext, pictureInPictureParamsBuilder, exoPlayerView)
-        );
+        if (this.enterPictureInPictureOnLeave) {
+            exoPlayerView.addOnLayoutChangeListener((View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) -> {
+                PictureInPictureUtil.applySourceRectHint(themedReactContext, pictureInPictureParamsBuilder, exoPlayerView);
+            });
+        }
         exoPlayerView.setLayoutParams(layoutParams);
         addView(exoPlayerView, 0, layoutParams);
 
@@ -947,7 +948,9 @@ public class ReactExoplayerView extends FrameLayout implements
         exoPlayerView.setPlayer(player);
 
         audioBecomingNoisyReceiver.setListener(self);
-        pictureInPictureReceiver.setListener();
+        if(enterPictureInPictureOnLeave) {
+            pictureInPictureReceiver.setListener();
+        }
         bandwidthMeter.addEventListener(new Handler(), self);
         setPlayWhenReady(!isPaused);
         playerNeedsSource = true;
@@ -1393,7 +1396,9 @@ public class ReactExoplayerView extends FrameLayout implements
                     player.release();
                 }
                 player.removeListener(this);
-                PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
+                if (enterPictureInPictureOnLeave) {
+                    PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
+                }
                 if (pipListenerUnsubscribe != null) {
                     new Handler().post(pipListenerUnsubscribe);
                 }
@@ -2060,7 +2065,9 @@ public class ReactExoplayerView extends FrameLayout implements
         if (isPlaying && isSeeking) {
             eventEmitter.onVideoSeek.invoke(player.getCurrentPosition(), seekPosition);
         }
-        PictureInPictureUtil.applyPlayingStatus(themedReactContext, pictureInPictureParamsBuilder, pictureInPictureReceiver, !isPlaying);
+        if (enterPictureInPictureOnLeave) {
+            PictureInPictureUtil.applyPlayingStatus(themedReactContext, pictureInPictureParamsBuilder, pictureInPictureReceiver, !isPlaying);
+        }
         eventEmitter.onVideoPlaybackStateChanged.invoke(isPlaying, isSeeking);
 
         if (isPlaying) {
@@ -2473,7 +2480,22 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void setEnterPictureInPictureOnLeave(boolean enterPictureInPictureOnLeave) {
         this.enterPictureInPictureOnLeave = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && enterPictureInPictureOnLeave;
-        PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, this.enterPictureInPictureOnLeave);
+
+        // Manage PIP lifecycle listener based on this prop
+        if (this.enterPictureInPictureOnLeave) {
+            // Add listener if not already present
+            if (pipListenerUnsubscribe == null) {
+                pipListenerUnsubscribe = PictureInPictureUtil.addLifecycleEventListener(themedReactContext, this);
+            }
+            PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, true);
+        } else {
+            // Remove listener if present
+            if (pipListenerUnsubscribe != null) {
+                pipListenerUnsubscribe.run();
+                pipListenerUnsubscribe = null;
+            }
+            PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, false);
+        }
     }
 
     protected void setIsInPictureInPicture(boolean isInPictureInPicture) {
@@ -2512,9 +2534,14 @@ public class ReactExoplayerView extends FrameLayout implements
         } else {
             rootView.removeView(exoPlayerView);
             if (!rootViewChildrenOriginalVisibility.isEmpty()) {
+                int visibilityIndex = 0;  // Track position in visibility list
                 for (int i = 0; i < rootView.getChildCount(); i++) {
-                    rootView.getChildAt(i).setVisibility(rootViewChildrenOriginalVisibility.get(i));
+                    if (visibilityIndex < rootViewChildrenOriginalVisibility.size()) {
+                        rootView.getChildAt(i).setVisibility(rootViewChildrenOriginalVisibility.get(visibilityIndex));
+                        visibilityIndex++;
+                    }
                 }
+                rootViewChildrenOriginalVisibility.clear();  // Clear after restoring
                 addView(exoPlayerView, 0, layoutParams);
             }
         }
@@ -2530,8 +2557,10 @@ public class ReactExoplayerView extends FrameLayout implements
                     .setAspectRatio(PictureInPictureUtil.calcPictureInPictureAspectRatio(player))
                     .build();
         }
-        PictureInPictureUtil.enterPictureInPictureMode(themedReactContext, _pipParams);
-    }
+        if (enterPictureInPictureOnLeave) {
+            PictureInPictureUtil.enterPictureInPictureMode(themedReactContext, _pipParams);
+        }
+        }
 
     public void exitPictureInPictureMode() {
         Activity currentActivity = themedReactContext.getCurrentActivity();
