@@ -18,7 +18,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.res.Configuration;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyManager;
@@ -41,8 +40,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.annotation.WorkerThread;
-import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
@@ -371,9 +370,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 LayoutParams.MATCH_PARENT);
         exoPlayerView = new ExoPlayerView(getContext());
         if (this.enterPictureInPictureOnLeave) {
-            exoPlayerView.addOnLayoutChangeListener((View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) -> {
-                PictureInPictureUtil.applySourceRectHint(themedReactContext, pictureInPictureParamsBuilder, exoPlayerView);
-            });
+            exoPlayerView.addOnLayoutChangeListener((View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) -> PictureInPictureUtil.applySourceRectHint(themedReactContext, pictureInPictureParamsBuilder, exoPlayerView));
         }
         exoPlayerView.setLayoutParams(layoutParams);
         addView(exoPlayerView, 0, layoutParams);
@@ -825,40 +822,38 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private Runnable onPlayerInitializedRunnable(Source runningSource, ReactExoplayerView self){
-        return () -> {
-            new Handler(Looper.getMainLooper()).post(() -> {
-                Log.d(TAG, "Running Player Post-Initialization");
-                if(playerReleased) return;
+        return () -> new Handler(Looper.getMainLooper()).post(() -> {
+            Log.d(TAG, "Running Player Post-Initialization");
+            if(playerReleased) return;
 
-                boolean postInitSuccessful = postInitializePlayerCore(self, runningSource);
-                if(!postInitSuccessful) return;
+            boolean postInitSuccessful = postInitializePlayerCore(self, runningSource);
+            if(!postInitSuccessful) return;
 
-                // Create source (and DRM) if needed
-                if (playerNeedsSource) {
-                    // Will force display of shutter view if needed
-                    exoPlayerView.updateShutterViewVisibility();
-                    exoPlayerView.invalidateAspectRatio();
-                    // DRM session manager creation must be done on a different thread to prevent crashes so we start a new thread
+            // Create source (and DRM) if needed
+            if (playerNeedsSource) {
+                // Will force display of shutter view if needed
+                exoPlayerView.updateShutterViewVisibility();
+                exoPlayerView.invalidateAspectRatio();
+                // DRM session manager creation must be done on a different thread to prevent crashes so we start a new thread
 
-                    if (viewHasDropped && runningSource == source) {
-                        return;
-                    }
-                    try {
-                        // Source initialization must run on the main thread
-                        initializePlayerSource(runningSource);
-                    } catch (Exception ex) {
-                        self.playerNeedsSource = true;
-                        DebugLog.e(TAG, "Failed to initialize Player! 1");
-                        DebugLog.e(TAG, ex.toString() + "\n" + Arrays.toString(ex.getStackTrace()));
-                        ex.printStackTrace();
-                        eventEmitter.onVideoError.invoke(ex.toString(), ex, "1001");
-                    }
-
-                } else if (runningSource == source) {
-                    initializePlayerSource(runningSource);
+                if (viewHasDropped && runningSource == source) {
+                    return;
                 }
-            });
-        };
+                try {
+                    // Source initialization must run on the main thread
+                    initializePlayerSource(runningSource);
+                } catch (Exception ex) {
+                    self.playerNeedsSource = true;
+                    DebugLog.e(TAG, "Failed to initialize Player! 1");
+                    DebugLog.e(TAG, ex.toString() + "\n" + Arrays.toString(ex.getStackTrace()));
+                    ex.printStackTrace();
+                    eventEmitter.onVideoError.invoke(ex.toString(), ex, "1001");
+                }
+
+            } else if (runningSource == source) {
+                initializePlayerSource(runningSource);
+            }
+        });
     }
 
     private void initializePlayer() {
@@ -1481,7 +1476,7 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     // Modern phone state callback for Android S+ (API 31+)
-    @androidx.annotation.RequiresApi(api = Build.VERSION_CODES.S)
+    @RequiresApi(api = Build.VERSION_CODES.S)
     private class PhoneCallTelephonyCallback extends TelephonyCallback implements TelephonyCallback.CallStateListener {
         @Override
         public void onCallStateChanged(int state) {
@@ -1629,11 +1624,7 @@ public class ReactExoplayerView extends FrameLayout implements
             return;
         }
 
-        if (playWhenReady) {
-            player.setPlayWhenReady(true);
-        } else {
-            player.setPlayWhenReady(false);
-        }
+        player.setPlayWhenReady(playWhenReady);
     }
 
     private void resumePlayback() {
@@ -2155,7 +2146,7 @@ public class ReactExoplayerView extends FrameLayout implements
 
     public void onCues(CueGroup cueGroup) {
         if (!cueGroup.cues.isEmpty() && cueGroup.cues.get(0).text != null) {
-            String subtitleText = cueGroup.cues.get(0).text.toString();
+            String subtitleText = Objects.requireNonNull(cueGroup.cues.get(0).text).toString();
             eventEmitter.onTextTrackDataChanged.invoke(subtitleText);
         }
     }
@@ -2422,7 +2413,7 @@ public class ReactExoplayerView extends FrameLayout implements
         boolean isSupported;
         try {
             MediaCodecInfo codecInfo = MediaCodecUtil.getDecoderInfo(mimeType, false, false);
-            isSupported = codecInfo.isVideoSizeAndRateSupportedV21(width, height, frameRate);
+            isSupported = codecInfo != null && codecInfo.isVideoSizeAndRateSupportedV21(width, height, frameRate);
         } catch (Exception e) {
             // Failed to get decoder info - assume it is supported
             isSupported = true;
