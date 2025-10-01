@@ -31,6 +31,7 @@ import android.os.Looper;
 import android.os.Message;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.Rational;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.CaptioningManager;
@@ -2545,7 +2546,9 @@ public class ReactExoplayerView extends FrameLayout implements
             ArrayList<RemoteAction> actions = PictureInPictureUtil.getPictureInPictureActions(themedReactContext, isPaused, pictureInPictureReceiver);
             pictureInPictureParamsBuilder.setActions(actions);
             _pipParams = pictureInPictureParamsBuilder
-                    .setAspectRatio(PictureInPictureUtil.calcPictureInPictureAspectRatio(player))
+                    .setAspectRatio(player != null ?
+                            PictureInPictureUtil.calcPictureInPictureAspectRatio(player) :
+                            new Rational(16, 9))
                     .build();
         }
         if (enterPictureInPictureOnLeave) {
