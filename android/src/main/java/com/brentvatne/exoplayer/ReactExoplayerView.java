@@ -2493,7 +2493,6 @@ public class ReactExoplayerView extends FrameLayout implements
     protected void setIsInPictureInPicture(boolean isInPictureInPicture) {
         eventEmitter.onPictureInPictureStatusChanged.invoke(isInPictureInPicture);
 
-        // Check if fullscreen is active
         if (fullScreenPlayerView != null && fullScreenPlayerView.isShowing()) {
             if (isInPictureInPicture) {
                 fullScreenPlayerView.hideWithoutPlayer();
@@ -2511,31 +2510,50 @@ public class ReactExoplayerView extends FrameLayout implements
                 LayoutParams.MATCH_PARENT,
                 LayoutParams.MATCH_PARENT);
 
-        if (isInPictureInPicture) {
-            ViewGroup parent = (ViewGroup)exoPlayerView.getParent();
+        // Helper to safely detach a view from its parent
+        Runnable detachExoPlayerView = () -> {
+            ViewGroup parent = (ViewGroup) exoPlayerView.getParent();
             if (parent != null) {
                 parent.removeView(exoPlayerView);
             }
+        };
+
+        if (isInPictureInPicture) {
+            // --- Entering PiP ---
+            detachExoPlayerView.run(); // Safely detach from any current parent
+
             for (int i = 0; i < rootView.getChildCount(); i++) {
-                if (rootView.getChildAt(i) != exoPlayerView) {
-                    rootViewChildrenOriginalVisibility.add(rootView.getChildAt(i).getVisibility());
-                    rootView.getChildAt(i).setVisibility(View.GONE);
+                View child = rootView.getChildAt(i);
+                // Ensure we don't try to hide the player view if it's somehow still a child
+                if (child != exoPlayerView) {
+                    rootViewChildrenOriginalVisibility.add(child.getVisibility());
+                    child.setVisibility(View.GONE);
                 }
             }
             rootView.addView(exoPlayerView, layoutParams);
         } else {
-            rootView.removeView(exoPlayerView);
+            // --- Exiting PiP ---
+            detachExoPlayerView.run(); // Safely detach from any current parent (likely rootView)
+
             if (!rootViewChildrenOriginalVisibility.isEmpty()) {
-                int visibilityIndex = 0;  // Track position in visibility list
-                for (int i = 0; i < rootView.getChildCount(); i++) {
-                    if (visibilityIndex < rootViewChildrenOriginalVisibility.size()) {
-                        rootView.getChildAt(i).setVisibility(rootViewChildrenOriginalVisibility.get(visibilityIndex));
-                        visibilityIndex++;
+                // Restore visibility of original child views
+                for (int i = 0; i < rootViewChildrenOriginalVisibility.size(); i++) {
+                    if (i < rootView.getChildCount()) {
+                        View childToRestore = rootView.getChildAt(i);
+                        int originalVisibility = rootViewChildrenOriginalVisibility.get(i);
+                        childToRestore.setVisibility(originalVisibility);
                     }
                 }
-                rootViewChildrenOriginalVisibility.clear();  // Clear after restoring
-                addView(exoPlayerView, 0, layoutParams);
+                rootViewChildrenOriginalVisibility.clear();
             }
+
+            // Add the player view back to its original container (this FrameLayout)
+            post(() -> {
+                // Double-check that the player view doesn't have a parent before adding it.
+                if (exoPlayerView.getParent() == null) {
+                    addView(exoPlayerView, 0, layoutParams);
+                }
+            });
         }
     }
 
