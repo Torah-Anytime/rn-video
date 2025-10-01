@@ -34,7 +34,14 @@ class NowPlayingInfoCenterManager {
     }
     
     deinit {
-        cleanup()
+        // Ensure cleanup happens on main thread to prevent timer-related crashes
+        if Thread.isMainThread {
+            cleanup()
+        } else {
+            DispatchQueue.main.sync {
+                cleanup()
+            }
+        }
     }
     
     // MARK: - Player Management
@@ -94,18 +101,26 @@ class NowPlayingInfoCenterManager {
     
     // MARK: - Cleanup
     public func cleanup() {
+        // Clean up in proper order to prevent crashes
         cleanupTimer()
-        cleanupPlayersAndObservers()
         invalidateCommandTargets()
+        cleanupPlayersAndObservers()
         clearNowPlayingInfo()
         receivingRemoteControlEvents = false
         currentVideoView = nil
+        currentPlayer = nil
     }
     
     private func cleanupTimer() {
-        DispatchQueue.main.async { [weak self] in
-            self?.updateTimer?.invalidate()
-            self?.updateTimer = nil
+        // Ensure timer cleanup happens synchronously on main thread to prevent race conditions
+        if Thread.isMainThread {
+            updateTimer?.invalidate()
+            updateTimer = nil
+        } else {
+            DispatchQueue.main.sync { [weak self] in
+                self?.updateTimer?.invalidate()
+                self?.updateTimer = nil
+            }
         }
     }
     
@@ -313,13 +328,22 @@ class NowPlayingInfoCenterManager {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
+            // Safely invalidate existing timer
             self.updateTimer?.invalidate()
             self.updateTimer = nil
             
             let delay = self.currentVideoView?._isQueueMode == true ? 0.5 : 0.3
             
-            self.updateTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                self?.updateNowPlayingInfo()
+            // Create timer with additional safety checks
+            guard delay > 0 else {
+                self.updateNowPlayingInfo()
+                return
+            }
+            
+            self.updateTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] timer in
+                // Extra safety: ensure timer is still valid when firing
+                guard timer.isValid, let strongSelf = self else { return }
+                strongSelf.updateNowPlayingInfo()
             }
         }
     }
