@@ -20,7 +20,6 @@ class NowPlayingInfoCenterManager {
     private var lastUpdateTime: CFTimeInterval = 0
     private var lastRegistrationTime: CFTimeInterval = 0
     private var updateTimer: Timer?
-    private let timerQueue = DispatchQueue(label: "com.reactnativevideo.nowplaying.timer", qos: .utility)
     
     var receivingRemoteControlEvents = false {
         didSet {
@@ -104,7 +103,7 @@ class NowPlayingInfoCenterManager {
     }
     
     private func cleanupTimer() {
-        timerQueue.async { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             self?.updateTimer?.invalidate()
             self?.updateTimer = nil
         }
@@ -311,7 +310,7 @@ class NowPlayingInfoCenterManager {
     
     // MARK: - Now Playing Info Updates
     private func debouncedUpdateNowPlayingInfo() {
-        timerQueue.async { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             
             self.updateTimer?.invalidate()
@@ -320,9 +319,7 @@ class NowPlayingInfoCenterManager {
             let delay = self.currentVideoView?._isQueueMode == true ? 0.5 : 0.3
             
             self.updateTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.updateNowPlayingInfo()
-                }
+                self?.updateNowPlayingInfo()
             }
         }
     }
