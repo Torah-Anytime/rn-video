@@ -362,25 +362,34 @@ class NowPlayingInfoCenterManager {
             return
         }
         
-        let metadata = extractMetadata(from: currentItem)
-        let title = extractTitle(from: metadata)
-        let artist = extractArtist(from: metadata)
-        let artwork = extractArtwork(from: metadata)
-        
-        let duration = currentItem.duration.seconds
-        let currentTimeSeconds = currentItem.currentTime().seconds
-        
-        let newNowPlayingInfo: [String: Any] = [
-            MPMediaItemPropertyTitle: title,
-            MPMediaItemPropertyArtist: artist,
-            MPMediaItemPropertyArtwork: artwork,
-            MPMediaItemPropertyPlaybackDuration: duration.isFinite ? duration : 0,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTimeSeconds.isFinite ? currentTimeSeconds.rounded() : 0,
-            MPNowPlayingInfoPropertyPlaybackRate: player.rate,
-            MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration)
-        ]
-        
-        updateNowPlayingInfoIfNeeded(newInfo: newNowPlayingInfo, title: title, artist: artist)
+        // Extract metadata on a background queue to avoid blocking the main thread
+        // with synchronous XPC calls to AVAsset.commonMetadata
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            let metadata = self.extractMetadata(from: currentItem)
+            let title = self.extractTitle(from: metadata)
+            let artist = self.extractArtist(from: metadata)
+            let artwork = self.extractArtwork(from: metadata)
+            
+            let duration = currentItem.duration.seconds
+            let currentTimeSeconds = currentItem.currentTime().seconds
+            
+            let newNowPlayingInfo: [String: Any] = [
+                MPMediaItemPropertyTitle: title,
+                MPMediaItemPropertyArtist: artist,
+                MPMediaItemPropertyArtwork: artwork,
+                MPMediaItemPropertyPlaybackDuration: duration.isFinite ? duration : 0,
+                MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTimeSeconds.isFinite ? currentTimeSeconds.rounded() : 0,
+                MPNowPlayingInfoPropertyPlaybackRate: player.rate,
+                MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration)
+            ]
+            
+            // Update MPNowPlayingInfoCenter on the main thread
+            DispatchQueue.main.async { [weak self] in
+                self?.updateNowPlayingInfoIfNeeded(newInfo: newNowPlayingInfo, title: title, artist: artist)
+            }
+        }
     }
     
     // MARK: - Metadata Extraction
