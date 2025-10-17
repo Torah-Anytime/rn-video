@@ -154,7 +154,17 @@ object PictureInPictureUtil {
     @JvmStatic
     @RequiresApi(Build.VERSION_CODES.O)
     fun calcPictureInPictureAspectRatio(player: ExoPlayer): Rational {
-        var aspectRatio = Rational(player.videoSize.width, player.videoSize.height)
+        val width = player.videoSize.width
+        val height = player.videoSize.height
+        
+        // Check if video dimensions are valid (not zero or negative)
+        // When changing video track, ExoPlayer may emit a ghost state with width/height = 0
+        if (width <= 0 || height <= 0) {
+            // Return default 16:9 aspect ratio when dimensions are invalid
+            return Rational(16, 9)
+        }
+        
+        var aspectRatio = Rational(width, height)
         // AspectRatio for the activity in picture-in-picture, must be between 2.39:1 and 1:2.39 (inclusive).
         // https://developer.android.com/reference/android/app/PictureInPictureParams.Builder#setAspectRatio(android.util.Rational)
         val maximumRatio = Rational(239, 100)
