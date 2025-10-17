@@ -366,22 +366,18 @@ class NowPlayingInfoCenterManager {
             return
         }
         
-        let metadata = extractMetadata(from: currentItem)
-        let title = extractTitle(from: metadata)
-        let artist = extractArtist(from: metadata)
-        
-        let duration = currentItem.duration.seconds
-        let currentTimeSeconds = currentItem.currentTime().seconds
-        
-        // Extract artwork asynchronously to avoid blocking the main thread
-        extractArtwork(from: metadata) { [weak self] artwork in
+        // Extract metadata on a background queue to avoid blocking the main thread
+        // with synchronous XPC calls to AVAsset.commonMetadata
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             
-            // Ensure the player and item are still valid when artwork is ready
-            guard self.currentPlayer == player,
-                  self.currentPlayer?.currentItem == currentItem else {
-                return
-            }
+            let metadata = self.extractMetadata(from: currentItem)
+            let title = self.extractTitle(from: metadata)
+            let artist = self.extractArtist(from: metadata)
+            let artwork = self.extractArtwork(from: metadata)
+            
+            let duration = currentItem.duration.seconds
+            let currentTimeSeconds = currentItem.currentTime().seconds
             
             let newNowPlayingInfo: [String: Any] = [
                 MPMediaItemPropertyTitle: title,
@@ -393,9 +389,9 @@ class NowPlayingInfoCenterManager {
                 MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration)
             ]
             
-            // Update on main thread
-            DispatchQueue.main.async {
-                self.updateNowPlayingInfoIfNeeded(newInfo: newNowPlayingInfo, title: title, artist: artist)
+            // Update MPNowPlayingInfoCenter on the main thread
+            DispatchQueue.main.async { [weak self] in
+                self?.updateNowPlayingInfoIfNeeded(newInfo: newNowPlayingInfo, title: title, artist: artist)
             }
         }
     }
