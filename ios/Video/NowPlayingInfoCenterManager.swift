@@ -21,6 +21,10 @@ class NowPlayingInfoCenterManager {
     private var lastRegistrationTime: CFTimeInterval = 0
     private var updateTimer: Timer?
     
+    // Artwork cache
+    private var artworkCache: [String: MPMediaItemArtwork] = [:]
+    private let artworkCacheQueue = DispatchQueue(label: "com.video.artworkCache", attributes: .concurrent)
+    
     var receivingRemoteControlEvents = false {
         didSet {
             if receivingRemoteControlEvents {
@@ -427,14 +431,39 @@ class NowPlayingInfoCenterManager {
             .first?.stringValue ?? "Unknown Artist"
     }
     
-    private func extractArtwork(from metadata: [AVMetadataItem]) -> MPMediaItemArtwork {
-        if let imageData = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierArtwork)
-            .first?.dataValue,
-           let image = UIImage(data: imageData) {
-            return MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-        } else {
-            let defaultImage = UIImage(systemName: "music.note") ?? UIImage()
-            return MPMediaItemArtwork(boundsSize: defaultImage.size) { _ in defaultImage }
+    private func extractArtwork(from metadata: [AVMetadataItem], completion: @escaping (MPMediaItemArtwork) -> Void) {
+        // Create a cache key from metadata identifiers
+        let cacheKey = metadata.compactMap { $0.identifier?.rawValue }.sorted().joined(separator: "_")
+        
+        // Check cache first (thread-safe read)
+        artworkCacheQueue.sync {
+            if let cachedArtwork = artworkCache[cacheKey] {
+                completion(cachedArtwork)
+                return
+            }
+        }
+        
+        // Perform expensive operations on background queue
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let artwork: MPMediaItemArtwork
+            
+            // Extract image data on background thread to avoid blocking main thread
+            if let imageData = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: .commonIdentifierArtwork)
+                .first?.dataValue,
+               let image = UIImage(data: imageData) {
+                artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            } else {
+                let defaultImage = UIImage(systemName: "music.note") ?? UIImage()
+                artwork = MPMediaItemArtwork(boundsSize: defaultImage.size) { _ in defaultImage }
+            }
+            
+            // Store in cache (thread-safe write)
+            self?.artworkCacheQueue.async(flags: .barrier) { [weak self] in
+                self?.artworkCache[cacheKey] = artwork
+            }
+            
+            // Return the artwork
+            completion(artwork)
         }
     }
     
