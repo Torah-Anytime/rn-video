@@ -1,5 +1,9 @@
 
 
+* fix: no completion function for meta data (4d67d32c)
+* chore: release v6.17.0 (876de370)
+* chore: update package version number (722cb5b2)
+
 * chore: update package version number (722cb5b2)
 
 # 6.17.0 (2025-10-17)
