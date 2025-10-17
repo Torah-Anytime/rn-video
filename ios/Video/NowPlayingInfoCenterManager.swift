@@ -362,24 +362,26 @@ class NowPlayingInfoCenterManager {
             let metadata = self.extractMetadata(from: currentItem)
             let title = self.extractTitle(from: metadata)
             let artist = self.extractArtist(from: metadata)
-            let artwork = self.extractArtwork(from: metadata)
             
             let duration = currentItem.duration.seconds
             let currentTimeSeconds = currentItem.currentTime().seconds
             
-            let newNowPlayingInfo: [String: Any] = [
-                MPMediaItemPropertyTitle: title,
-                MPMediaItemPropertyArtist: artist,
-                MPMediaItemPropertyArtwork: artwork,
-                MPMediaItemPropertyPlaybackDuration: duration.isFinite ? duration : 0,
-                MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTimeSeconds.isFinite ? currentTimeSeconds.rounded() : 0,
-                MPNowPlayingInfoPropertyPlaybackRate: player.rate,
-                MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration)
-            ]
-            
-            // Update MPNowPlayingInfoCenter on the main thread
-            DispatchQueue.main.async { [weak self] in
-                self?.updateNowPlayingInfoIfNeeded(newInfo: newNowPlayingInfo, title: title, artist: artist)
+            // Extract artwork asynchronously with completion handler ✅
+            self.extractArtwork(from: metadata) { artwork in
+                let newNowPlayingInfo: [String: Any] = [
+                    MPMediaItemPropertyTitle: title,
+                    MPMediaItemPropertyArtist: artist,
+                    MPMediaItemPropertyArtwork: artwork,
+                    MPMediaItemPropertyPlaybackDuration: duration.isFinite ? duration : 0,
+                    MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTimeSeconds.isFinite ? currentTimeSeconds.rounded() : 0,
+                    MPNowPlayingInfoPropertyPlaybackRate: player.rate,
+                    MPNowPlayingInfoPropertyIsLiveStream: CMTIME_IS_INDEFINITE(currentItem.asset.duration)
+                ]
+                
+                // Update MPNowPlayingInfoCenter on the main thread
+                DispatchQueue.main.async { [weak self] in
+                    self?.updateNowPlayingInfoIfNeeded(newInfo: newNowPlayingInfo, title: title, artist: artist)
+                }
             }
         }
     }
