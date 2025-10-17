@@ -1,5 +1,7 @@
 
 
+* chore: update package version number (722cb5b2)
+
 # 6.17.0 (2025-10-17)
 
 
