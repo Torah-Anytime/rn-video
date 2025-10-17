@@ -7,7 +7,7 @@ import {withAds} from './withAds';
 import {withBackgroundAudio} from './withBackgroundAudio';
 import {withPermissions} from '@expo/config-plugins/build/android/Permissions';
 import {withCaching} from './withCaching';
-import { withFullScreenVideoConfig } from './withFullScreenVideo';
+import {withFullScreenVideoConfig} from './withFullScreenVideo';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pkg = require('../../package.json');
@@ -52,7 +52,7 @@ const withRNVideo: ConfigPlugin<ConfigProps> = (config, props = {}) => {
     config = withBackgroundAudio(config, props.enableBackgroundAudio);
   }
 
-  config = withFullScreenVideoConfig(config)
+  config = withFullScreenVideoConfig(config);
 
   config = withPermissions(config, androidPermissions);
 

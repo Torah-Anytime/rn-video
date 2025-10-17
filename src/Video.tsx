@@ -404,7 +404,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
         return NativeVideoManager.setSourceCmd(
           getReactTag(nativeRef),
           sourceToUnternalSource(_source),
-        )
+        );
       },
       [sourceToUnternalSource],
     );
@@ -650,19 +650,13 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
       [onControlsVisibilityChange],
     );
 
-    const _onNextTrack = useCallback(
-      () => {
-        onNextTrack?.();
-      },
-      [onNextTrack],
-    );
+    const _onNextTrack = useCallback(() => {
+      onNextTrack?.();
+    }, [onNextTrack]);
 
-    const _onPreviousTrack = useCallback(
-      () => {
-        onPreviousTrack?.();
-      },
-      [onNextTrack],
-    );
+    const _onPreviousTrack = useCallback(() => {
+      onPreviousTrack?.();
+    }, [onPreviousTrack]);
 
     const selectedDrm = source?.drm || drm;
     const usingExternalGetLicense = selectedDrm?.getLicense instanceof Function;
@@ -744,7 +738,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
         enterPictureInPicture,
         exitPictureInPicture,
         setSource,
-        setQueue
+        setQueue,
       ],
     );
 

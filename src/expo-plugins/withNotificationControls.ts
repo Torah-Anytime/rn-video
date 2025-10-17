@@ -1,9 +1,12 @@
 import {withAndroidManifest, type ConfigPlugin} from '@expo/config-plugins';
 
 export const withNotificationControls: ConfigPlugin<boolean> = (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   c: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   enableNotificationControls: any,
 ) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return withAndroidManifest(c, (config: any) => {
     const manifest = config.modResults.manifest;
 
@@ -19,16 +22,17 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
     }
 
     // Add the service to the AndroidManifest.xml
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     manifest.application.map((application: any) => {
-      function registerApplication(s: string){
+      function registerApplication(s: string) {
         // We check if the VideoPlaybackService is already defined in the AndroidManifest.xml
         // to prevent adding duplicate service entries. If the service exists, we will remove
         // it before adding the updated configuration to ensure there are no conflicts or redundant
         // service declarations in the manifest.
         const existingServiceIndex = application?.service.findIndex(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (service: any) =>
-            service?.$?.['android:name'] ===
-            'com.brentvatne.exoplayer.' + s,
+            service?.$?.['android:name'] === 'com.brentvatne.exoplayer.' + s,
         );
         if (existingServiceIndex !== -1) {
           application?.service.splice(existingServiceIndex, 1);
@@ -45,7 +49,8 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
               action: [
                 {
                   $: {
-                    'android:name': 'androidx.media3.session.MediaSessionService',
+                    'android:name':
+                      'androidx.media3.session.MediaSessionService',
                   },
                 },
               ],
@@ -58,8 +63,8 @@ export const withNotificationControls: ConfigPlugin<boolean> = (
         application.service = [];
       }
 
-      registerApplication("VideoPlaybackService")
-      registerApplication("CentralizedPlaybackNotificationManager")
+      registerApplication('VideoPlaybackService');
+      registerApplication('CentralizedPlaybackNotificationManager');
 
       return application;
     });

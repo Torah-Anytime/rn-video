@@ -23,8 +23,8 @@ interface WebVideoElementProps
 // styles.
 //
 // See <https://necolas.github.io/react-native-web/docs/unstable-apis/#use-with-existing-react-dom-components>
-function WebVideo(props: WebVideoElementProps) {
-  return unstable_createElement('video', props);
+function WebVideo(props: WebVideoElementProps): React.ReactElement<unknown> {
+  return unstable_createElement('video', props) as React.ReactElement<unknown>;
 }
 
 // stolen from https://stackoverflow.com/a/77278013/21726244
@@ -93,7 +93,7 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
     );
 
     const [src, setSource] = useState(source);
-    const [q, setQueueState] = useState<Array<any>>([]);
+    const [q, setQueueState] = useState<Array<unknown>>([]);
     const currentSourceProp = useRef(source);
     useEffect(() => {
       if (isDeepEqual(source, currentSourceProp.current)) {
@@ -103,11 +103,14 @@ const Video = forwardRef<VideoRef, ReactVideoProps>(
       setSource(source);
     }, [source]);
 
-    const setQueue = useCallback((_queue?: Array<any>) => {
-      if (_queue && _queue.length > 0 && q[0] !== _queue[0]) {
-        setQueueState(_queue);
-      }
-    }, []);
+    const setQueue = useCallback(
+      (_queue?: Array<unknown>) => {
+        if (_queue && _queue.length > 0 && q[0] !== _queue[0]) {
+          setQueueState(_queue);
+        }
+      },
+      [q],
+    );
 
     const pause = useCallback(() => {
       if (!nativeRef.current) {

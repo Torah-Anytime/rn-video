@@ -19,7 +19,8 @@ export const withFullScreenVideoConfig: ConfigPlugin = (config) => {
     // Define the new activity
     const fullScreenActivity = {
       $: {
-        'android:name': 'com.brentvatne.exoplayer.ExoPlayerFullscreenVideoActivity',
+        'android:name':
+          'com.brentvatne.exoplayer.ExoPlayerFullscreenVideoActivity',
         'android:configChanges':
           'keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode',
         'android:theme': '@style/FullScreenTheme',
@@ -31,7 +32,7 @@ export const withFullScreenVideoConfig: ConfigPlugin = (config) => {
       !app.activity?.some(
         (activity) =>
           activity.$['android:name'] ===
-          'com.brentvatne.exoplayer.ExoPlayerFullscreenVideoActivity'
+          'com.brentvatne.exoplayer.ExoPlayerFullscreenVideoActivity',
       )
     ) {
       app.activity = app.activity || [];
@@ -42,23 +43,23 @@ export const withFullScreenVideoConfig: ConfigPlugin = (config) => {
   });
 
   // Modify styles.xml
-  config = withAndroidStyles(config, (config) => {
-    const styles = config.modResults.resources.style || [];
+  config = withAndroidStyles(config, (stylesConfig) => {
+    const styles = stylesConfig.modResults.resources.style || [];
 
     // Check if FullScreenTheme already exists
     if (!styles.some((s) => s.$.name === 'FullScreenTheme')) {
       styles.push({
-        $: { name: 'FullScreenTheme', parent: 'Theme.AppCompat.NoActionBar' },
+        $: {name: 'FullScreenTheme', parent: 'Theme.AppCompat.NoActionBar'},
         item: [
-          { _: 'true', $: { name: 'android:windowNoTitle' } },
-          { _: 'true', $: { name: 'android:windowFullscreen' } },
-          { _: '@null', $: { name: 'android:windowContentOverlay' } },
-          { _: '@android:color/black', $: { name: 'android:windowBackground' } },
+          {_: 'true', $: {name: 'android:windowNoTitle'}},
+          {_: 'true', $: {name: 'android:windowFullscreen'}},
+          {_: '@null', $: {name: 'android:windowContentOverlay'}},
+          {_: '@android:color/black', $: {name: 'android:windowBackground'}},
         ],
       });
     }
 
-    return config;
+    return stylesConfig;
   });
 
   return config;
