@@ -20,6 +20,7 @@ class NowPlayingInfoCenterManager {
     private var lastUpdateTime: CFTimeInterval = 0
     private var lastRegistrationTime: CFTimeInterval = 0
     private var updateTimer: Timer?
+    private let timerQueue = DispatchQueue(label: "com.reactnativevideo.nowplaying.timer", qos: .utility)
     
     // Artwork cache
     private var artworkCache: [String: MPMediaItemArtwork] = [:]
@@ -116,15 +117,9 @@ class NowPlayingInfoCenterManager {
     }
     
     private func cleanupTimer() {
-        // Ensure timer cleanup happens synchronously on main thread to prevent race conditions
-        if Thread.isMainThread {
-            updateTimer?.invalidate()
-            updateTimer = nil
-        } else {
-            DispatchQueue.main.sync { [weak self] in
-                self?.updateTimer?.invalidate()
-                self?.updateTimer = nil
-            }
+        timerQueue.sync { [weak self] in
+            self?.updateTimer?.invalidate()
+            self?.updateTimer = nil
         }
     }
     
@@ -329,25 +324,18 @@ class NowPlayingInfoCenterManager {
     
     // MARK: - Now Playing Info Updates
     private func debouncedUpdateNowPlayingInfo() {
-        DispatchQueue.main.async { [weak self] in
+        timerQueue.async { [weak self] in
             guard let self = self else { return }
             
-            // Safely invalidate existing timer
             self.updateTimer?.invalidate()
             self.updateTimer = nil
             
             let delay = self.currentVideoView?._isQueueMode == true ? 0.5 : 0.3
             
-            // Create timer with additional safety checks
-            guard delay > 0 else {
-                self.updateNowPlayingInfo()
-                return
-            }
-            
-            self.updateTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] timer in
-                // Extra safety: ensure timer is still valid when firing
-                guard timer.isValid, let strongSelf = self else { return }
-                strongSelf.updateNowPlayingInfo()
+            self.updateTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.updateNowPlayingInfo()
+                }
             }
         }
     }
