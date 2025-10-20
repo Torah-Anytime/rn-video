@@ -1,5 +1,12 @@
 
 
+## [6.17.5](https://github.com/TheWidlarzGroup/react-native-video/compare/v6.17.3...v6.17.5) (2025-10-20)
+
+
+### Bug Fixes
+
+* pip crash caused by adding child view ([a68db1b](https://github.com/TheWidlarzGroup/react-native-video/commit/a68db1b8f65978b428b7a5b2f726ce5021417e7e))
+
 * chore: update package version number (44840d33)
 
 ## [6.17.3](https://github.com/TheWidlarzGroup/react-native-video/compare/v6.17.0...v6.17.3) (2025-10-20)
