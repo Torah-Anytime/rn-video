@@ -1,5 +1,7 @@
 
 
+* chore: update package version number (44840d33)
+
 ## [6.17.3](https://github.com/TheWidlarzGroup/react-native-video/compare/v6.17.0...v6.17.3) (2025-10-20)
 
 
