@@ -1,5 +1,13 @@
 
 
+## [6.17.3](https://github.com/TheWidlarzGroup/react-native-video/compare/v6.17.0...v6.17.3) (2025-10-20)
+
+
+### Bug Fixes
+
+* no completion function for meta data ([4d67d32](https://github.com/TheWidlarzGroup/react-native-video/commit/4d67d32cac2bdb108fb28080e88c71cb2bd2adbb))
+* null pointer exception fo onUnbind ([4925a0c](https://github.com/TheWidlarzGroup/react-native-video/commit/4925a0c468299de874cfb991b1ecb626fa0695f0))
+
 * fix: no completion function for meta data (4d67d32c)
 * chore: release v6.17.0 (876de370)
 * chore: update package version number (722cb5b2)
