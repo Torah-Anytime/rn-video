@@ -2480,7 +2480,8 @@ public class ReactExoplayerView extends FrameLayout implements
             if (pipListenerUnsubscribe == null) {
                 pipListenerUnsubscribe = PictureInPictureUtil.addLifecycleEventListener(themedReactContext, this);
             }
-            PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, true);
+            // Uncomment for auto pip enter
+//            PictureInPictureUtil.applyAutoEnterEnabled(themedReactContext, pictureInPictureParamsBuilder, true);
         } else {
             // Remove listener if present
             if (pipListenerUnsubscribe != null) {
