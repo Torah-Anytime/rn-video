@@ -34,6 +34,7 @@ import android.util.Log;
 import android.util.Rational;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.view.accessibility.CaptioningManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -2490,70 +2491,129 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
-    protected void setIsInPictureInPicture(boolean isInPictureInPicture) {
-        eventEmitter.onPictureInPictureStatusChanged.invoke(isInPictureInPicture);
+    private boolean isHandlingPipChange = false;
 
-        if (fullScreenPlayerView != null && fullScreenPlayerView.isShowing()) {
-            if (isInPictureInPicture) {
-                fullScreenPlayerView.hideWithoutPlayer();
-            }
+    protected void setIsInPictureInPicture(boolean isInPictureInPicture) {
+        // Ensure we're on the UI thread
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            post(() -> setIsInPictureInPicture(isInPictureInPicture));
             return;
         }
 
-        Activity currentActivity = themedReactContext.getCurrentActivity();
-        if (currentActivity == null) return;
+        // Prevent re-entrant calls
+        if (isHandlingPipChange) {
+            Log.d(TAG, "Already handling PiP change, skipping");
+            return;
+        }
+        isHandlingPipChange = true;
 
-        View decorView = currentActivity.getWindow().getDecorView();
-        ViewGroup rootView = decorView.findViewById(android.R.id.content);
+        try {
+            Log.d(TAG, "setIsInPictureInPicture: " + isInPictureInPicture + ", current parent: " + exoPlayerView.getParent());
 
-        LayoutParams layoutParams = new LayoutParams(
-                LayoutParams.MATCH_PARENT,
-                LayoutParams.MATCH_PARENT);
+            eventEmitter.onPictureInPictureStatusChanged.invoke(isInPictureInPicture);
 
-        // Helper to safely detach a view from its parent
-        Runnable detachExoPlayerView = () -> {
-            ViewGroup parent = (ViewGroup) exoPlayerView.getParent();
-            if (parent != null) {
-                parent.removeView(exoPlayerView);
-            }
-        };
-
-        if (isInPictureInPicture) {
-            // --- Entering PiP ---
-            detachExoPlayerView.run(); // Safely detach from any current parent
-
-            for (int i = 0; i < rootView.getChildCount(); i++) {
-                View child = rootView.getChildAt(i);
-                // Ensure we don't try to hide the player view if it's somehow still a child
-                if (child != exoPlayerView) {
-                    rootViewChildrenOriginalVisibility.add(child.getVisibility());
-                    child.setVisibility(View.GONE);
+            if (fullScreenPlayerView != null && fullScreenPlayerView.isShowing()) {
+                if (isInPictureInPicture) {
+                    fullScreenPlayerView.hideWithoutPlayer();
                 }
+                return;
             }
-            rootView.addView(exoPlayerView, layoutParams);
-        } else {
-            // --- Exiting PiP ---
-            detachExoPlayerView.run(); // Safely detach from any current parent (likely rootView)
 
-            if (!rootViewChildrenOriginalVisibility.isEmpty()) {
-                // Restore visibility of original child views
-                for (int i = 0; i < rootViewChildrenOriginalVisibility.size(); i++) {
-                    if (i < rootView.getChildCount()) {
-                        View childToRestore = rootView.getChildAt(i);
-                        int originalVisibility = rootViewChildrenOriginalVisibility.get(i);
-                        childToRestore.setVisibility(originalVisibility);
+            Activity currentActivity = themedReactContext.getCurrentActivity();
+            if (currentActivity == null) {
+                Log.e(TAG, "Current activity is null");
+                return;
+            }
+
+            View decorView = currentActivity.getWindow().getDecorView();
+            ViewGroup rootView = decorView.findViewById(android.R.id.content);
+
+            LayoutParams layoutParams = new LayoutParams(
+                    LayoutParams.MATCH_PARENT,
+                    LayoutParams.MATCH_PARENT);
+
+            if (isInPictureInPicture) {
+                // --- Entering PiP ---
+                ViewParent currentParent = exoPlayerView.getParent();
+
+                // Only hide other views if we're not already in PiP mode
+                if (currentParent != rootView) {
+                    rootViewChildrenOriginalVisibility.clear();
+                    for (int i = 0; i < rootView.getChildCount(); i++) {
+                        View child = rootView.getChildAt(i);
+                        if (child != exoPlayerView) {
+                            rootViewChildrenOriginalVisibility.add(child.getVisibility());
+                            child.setVisibility(View.GONE);
+                        }
                     }
+
+                    // Remove from current parent
+                    if (currentParent instanceof ViewGroup) {
+                        Log.d(TAG, "Removing exoPlayerView from: " + currentParent);
+                        ((ViewGroup) currentParent).removeView(exoPlayerView);
+                    }
+
+                    // Add to rootView
+                    if (exoPlayerView.getParent() == null) {
+                        Log.d(TAG, "Adding exoPlayerView to rootView");
+                        rootView.addView(exoPlayerView, layoutParams);
+                    } else {
+                        Log.e(TAG, "ERROR: exoPlayerView still has parent after removal: " + exoPlayerView.getParent());
+                    }
+                } else {
+                    Log.d(TAG, "exoPlayerView already in rootView, skipping move");
                 }
-                rootViewChildrenOriginalVisibility.clear();
+
+            } else {
+                // --- Exiting PiP ---
+                ViewParent currentParent = exoPlayerView.getParent();
+
+                // Restore visibility of other views
+                if (!rootViewChildrenOriginalVisibility.isEmpty()) {
+                    int childCount = Math.min(rootView.getChildCount(), rootViewChildrenOriginalVisibility.size());
+                    for (int i = 0; i < childCount; i++) {
+                        View childToRestore = rootView.getChildAt(i);
+                        if (childToRestore != null && childToRestore != exoPlayerView) {
+                            int originalVisibility = rootViewChildrenOriginalVisibility.get(i);
+                            childToRestore.setVisibility(originalVisibility);
+                        }
+                    }
+                    rootViewChildrenOriginalVisibility.clear();
+                }
+
+                // Only move if we're not already in the correct parent
+                if (currentParent != this) {
+                    // Remove from current parent (likely rootView)
+                    if (currentParent instanceof ViewGroup) {
+                        Log.d(TAG, "Removing exoPlayerView from: " + currentParent);
+                        ((ViewGroup) currentParent).removeView(exoPlayerView);
+                    }
+
+                    // Add back to this ReactExoplayerView
+                    if (exoPlayerView.getParent() == null) {
+                        Log.d(TAG, "Adding exoPlayerView back to ReactExoplayerView");
+                        addView(exoPlayerView, 0, layoutParams);
+                    } else {
+                        Log.e(TAG, "ERROR: exoPlayerView still has parent after removal: " + exoPlayerView.getParent());
+                    }
+                } else {
+                    Log.d(TAG, "exoPlayerView already in ReactExoplayerView, skipping move");
+                }
+
+                // Always ensure proper layout when exiting PiP
+                post(() -> {
+                    if (exoPlayerView != null) {
+                        exoPlayerView.requestLayout();
+                        exoPlayerView.invalidate();
+                    }
+                    reLayoutControls();
+                });
             }
 
-            // Add the player view back to its original container (this FrameLayout)
-            post(() -> {
-                // Double-check that the player view doesn't have a parent before adding it.
-                if (exoPlayerView.getParent() == null) {
-                    addView(exoPlayerView, 0, layoutParams);
-                }
-            });
+        } catch (Exception e) {
+            Log.e(TAG, "Exception in setIsInPictureInPicture", e);
+        } finally {
+            isHandlingPipChange = false;
         }
     }
 
