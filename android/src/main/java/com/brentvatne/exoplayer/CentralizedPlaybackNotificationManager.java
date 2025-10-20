@@ -143,7 +143,9 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     @Override
     public boolean onUnbind(Intent intent) {
         Log.d(TAG, "CPNM Unbind");
+        if(mediaSession!=null){
         removeSession(mediaSession);
+        }
         stopSelf();
         return super.onUnbind(intent);
     }
