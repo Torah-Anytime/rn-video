@@ -331,7 +331,7 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
             // but it's better if we resume playback
             let wasPlaying = player?.timeControlStatus == .playing
 
-            coordinator.animate(alongsideTransition: nil) { [weak self] context in
+            coordinator.animate(alongsideTransition: { _ in }) { [weak self] context in
                 guard let self, !context.isCancelled, wasPlaying else { return }
                 self.player?.play()
             }
