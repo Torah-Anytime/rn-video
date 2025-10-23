@@ -523,42 +523,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         _player?.rate = 0.0
     }
 
-    private func configureAudioSession() {
-        guard !_disableAudioSessionManagement else { return }
-
-        let audioSession = AVAudioSession.sharedInstance()
-
-        if audioSession.category == .playback {
-            return
-        }
-
-        do {
-            try audioSession.setCategory(.playback, mode: .default, options: [])
-
-            if !audioSession.isOtherAudioPlaying {
-                try audioSession.setActive(true)
-            }
-        } catch let error as NSError {
-            if error.code == -50 {
-                attemptAudioSessionReset(audioSession)
-            }
-        }
-    }
-
-    private func attemptAudioSessionReset(_ audioSession: AVAudioSession) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            do {
-                try audioSession.setActive(
-                    false,
-                    options: .notifyOthersOnDeactivation
-                )
-                try audioSession.setCategory(.playback)
-                try audioSession.setActive(true)
-            } catch {
-            }
-        }
-    }
-
     @objc func applicationWillResignActive(notification _: NSNotification!) {
         let isExternalPlaybackActive = getIsExternalPlaybackActive()
         if _playInBackground || _playWhenInactive || !_isPlaying
@@ -629,7 +593,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         {
             return
         }
-        configureAudioSession()
+        AudioSessionManager.shared.updateAudioSessionConfiguration()
         scheduleNowPlayingUpdate()
         // Needed to play sound in background. See https://developer.apple.com/library/ios/qa/qa1668/_index.html
         clearPlayerFromViews()
@@ -637,7 +601,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
     private func handleForegroundTransition() {
         if _isQueueMode && _playInBackground {
-            configureAudioSession()
+            AudioSessionManager.shared.updateAudioSessionConfiguration()
             if !_paused {
                 _player?.play()
                 _player?.rate = _rate
@@ -730,7 +694,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         _audioSessionInterrupted = false
 
         if _wasPlayingBeforeInterruption {
-            configureAudioSession()
+            AudioSessionManager.shared.updateAudioSessionConfiguration()
             scheduleNowPlayingUpdate()
 
             _paused = false
@@ -1278,7 +1242,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         guard !_audioSessionInterrupted else { return }
 
         if _player?.rate == 0 {
-            configureAudioSession()
+            AudioSessionManager.shared.updateAudioSessionConfiguration()
         }
 
         if _adPlaying {

@@ -7,6 +7,7 @@ class AudioSessionManager {
     private var videoViews = NSHashTable<RCTVideo>.weakObjects()
     private var isAudioSessionActive = false
     private var remoteControlEventsActive = false
+    private let audioSessionQueue = DispatchQueue(label: "com.reactnativevideo.audioSessionQueue", qos: .userInitiated)
 
     private var isAudioSessionManagementDisabled: Bool {
         return videoViews.allObjects.contains { view in
@@ -109,105 +110,111 @@ class AudioSessionManager {
     // MARK: - Audio Session Configuration
 
     private func configureForRemoteControlEvents() {
-        let audioSession = AVAudioSession.sharedInstance()
+        audioSessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            let audioSession = AVAudioSession.sharedInstance()
 
-        do {
-            // Remote control events always need playback category
-            try audioSession.setCategory(.playback, mode: .moviePlayback)
-            activateAudioSession()
-        } catch {
-            print(
-                "Failed to configure audio session for remote control events: \(error.localizedDescription)"
-            )
+            do {
+                // Remote control events always need playback category
+                try audioSession.setCategory(.playback, mode: .moviePlayback)
+                self.activateAudioSession()
+            } catch {
+                print(
+                    "Failed to configure audio session for remote control events: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
     private func configureAudioSession() {
-        let audioSession = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = []
+        audioSessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            let audioSession = AVAudioSession.sharedInstance()
+            var options: AVAudioSession.CategoryOptions = []
 
-        // Check player properties
-        let anyPlayerShowNotificationControls = videoViews.allObjects.contains { view in
-            return view._showNotificationControls
-        }
-
-        let anyPlayerNeedsPiP = videoViews.allObjects.contains { view in
-            return view.isPictureInPictureActive()
-        }
-
-        let anyPlayerNeedsBackgroundPlayback = videoViews.allObjects.contains { view in
-            return view._playInBackground
-        }
-
-        let canAllowMixing = !anyPlayerShowNotificationControls && !anyPlayerNeedsBackgroundPlayback
-
-        if isAudioSessionManagementDisabled {
-            // AUDIO SESSION MANAGEMENT DISABLED BY USER
-            return
-        }
-
-        if canAllowMixing {
-            let shouldEnableMixing = videoViews.allObjects.contains { view in
-                return view._mixWithOthers == "mix"
+            // Check player properties
+            let anyPlayerShowNotificationControls = self.videoViews.allObjects.contains { view in
+                return view._showNotificationControls
             }
 
-            let shouldEnableDucking = videoViews.allObjects.contains { view in
-                return view._mixWithOthers == "duck"
+            let anyPlayerNeedsPiP = self.videoViews.allObjects.contains { view in
+                return view.isPictureInPictureActive()
             }
 
-            if shouldEnableMixing && shouldEnableDucking {
-                print(
-                    "Warning: Conflicting mixWithOthers settings found (mix vs duck) - defaulting to mix"
-                )
-                options.insert(.mixWithOthers)
-            } else {
-                if shouldEnableMixing {
+            let anyPlayerNeedsBackgroundPlayback = self.videoViews.allObjects.contains { view in
+                return view._playInBackground
+            }
+
+            let canAllowMixing = !anyPlayerShowNotificationControls && !anyPlayerNeedsBackgroundPlayback
+
+            if self.isAudioSessionManagementDisabled {
+                // AUDIO SESSION MANAGEMENT DISABLED BY USER
+                return
+            }
+
+            if canAllowMixing {
+                let shouldEnableMixing = self.videoViews.allObjects.contains { view in
+                    return view._mixWithOthers == "mix"
+                }
+
+                let shouldEnableDucking = self.videoViews.allObjects.contains { view in
+                    return view._mixWithOthers == "duck"
+                }
+
+                if shouldEnableMixing && shouldEnableDucking {
+                    print(
+                        "Warning: Conflicting mixWithOthers settings found (mix vs duck) - defaulting to mix"
+                    )
                     options.insert(.mixWithOthers)
-                }
+                } else {
+                    if shouldEnableMixing {
+                        options.insert(.mixWithOthers)
+                    }
 
-                if shouldEnableDucking {
-                    options.insert(.duckOthers)
+                    if shouldEnableDucking {
+                        options.insert(.duckOthers)
+                    }
                 }
             }
-        }
 
-        let isAnyPlayerUsingEarpiece = videoViews.allObjects.contains { view in
-            return view._audioOutput == "earpiece"
-        }
+            let isAnyPlayerUsingEarpiece = self.videoViews.allObjects.contains { view in
+                return view._audioOutput == "earpiece"
+            }
 
-        let isSilentSwitchIgnore = videoViews.allObjects.contains { view in
-            return view._ignoreSilentSwitch == "ignore"
-        }
+            let isSilentSwitchIgnore = self.videoViews.allObjects.contains { view in
+                return view._ignoreSilentSwitch == "ignore"
+            }
 
-        let isSilentSwitchObey = videoViews.allObjects.contains { view in
-            return view._ignoreSilentSwitch == "obey"
-        }
+            let isSilentSwitchObey = self.videoViews.allObjects.contains { view in
+                return view._ignoreSilentSwitch == "obey"
+            }
 
-        // Determine audio category based on player requirements
-        let category = determineAudioCategory(
-            silentSwitchObey: isSilentSwitchObey,
-            silentSwitchIgnore: isSilentSwitchIgnore,
-            earpiece: isAnyPlayerUsingEarpiece,
-            pip: anyPlayerNeedsPiP,
-            backgroundPlayback: anyPlayerNeedsBackgroundPlayback,
-            notificationControls: anyPlayerShowNotificationControls
-        )
-
-        do {
-            try audioSession.setCategory(
-                category, mode: .moviePlayback, options: canAllowMixing ? options : []
+            // Determine audio category based on player requirements
+            let category = self.determineAudioCategory(
+                silentSwitchObey: isSilentSwitchObey,
+                silentSwitchIgnore: isSilentSwitchIgnore,
+                earpiece: isAnyPlayerUsingEarpiece,
+                pip: anyPlayerNeedsPiP,
+                backgroundPlayback: anyPlayerNeedsBackgroundPlayback,
+                notificationControls: anyPlayerShowNotificationControls
             )
 
-            // Configure audio port
-            if isAnyPlayerUsingEarpiece, audioSession.category == .playAndRecord {
-                #if os(iOS) || os(visionOS)
-                    try audioSession.overrideOutputAudioPort(.speaker)
-                #endif
-            } else {
-                try audioSession.overrideOutputAudioPort(.none)
+            do {
+                try audioSession.setCategory(
+                    category, mode: .moviePlayback, options: canAllowMixing ? options : []
+                )
+
+                // Configure audio port
+                if isAnyPlayerUsingEarpiece, audioSession.category == .playAndRecord {
+                    #if os(iOS) || os(visionOS)
+                        try audioSession.overrideOutputAudioPort(.speaker)
+                    #endif
+                } else {
+                    try audioSession.overrideOutputAudioPort(.none)
+                }
+            } catch {
+                print("Failed to configure audio session: \(error.localizedDescription)")
             }
-        } catch {
-            print("Failed to configure audio session: \(error.localizedDescription)")
         }
     }
 
@@ -264,30 +271,36 @@ class AudioSessionManager {
     }
 
     private func activateAudioSession() {
-        if isAudioSessionActive {
-            return
-        }
+        audioSessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            if self.isAudioSessionActive {
+                return
+            }
 
-        do {
-            try AVAudioSession.sharedInstance().setActive(true)
-            isAudioSessionActive = true
-        } catch {
-            print("Failed to activate audio session: \(error.localizedDescription)")
+            do {
+                try AVAudioSession.sharedInstance().setActive(true)
+                self.isAudioSessionActive = true
+            } catch {
+                print("Failed to activate audio session: \(error.localizedDescription)")
+            }
         }
     }
 
     private func deactivateAudioSession() {
-        if !isAudioSessionActive {
-            return
-        }
+        audioSessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            if !self.isAudioSessionActive {
+                return
+            }
 
-        do {
-            try AVAudioSession.sharedInstance().setActive(
-                false, options: .notifyOthersOnDeactivation
-            )
-            isAudioSessionActive = false
-        } catch {
-            print("Failed to deactivate audio session: \(error.localizedDescription)")
+            do {
+                try AVAudioSession.sharedInstance().setActive(
+                    false, options: .notifyOthersOnDeactivation
+                )
+                self.isAudioSessionActive = false
+            } catch {
+                print("Failed to deactivate audio session: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -344,19 +357,22 @@ class AudioSessionManager {
     
     private func handleBluetoothDisconnection() {
         // Force audio session reset by deactivating and reactivating
-        if isAudioSessionActive {
-            do {
-                try AVAudioSession.sharedInstance().setActive(false, options: [])
-                isAudioSessionActive = false
-                print("Deactivated audio session due to Bluetooth disconnect")
-            } catch {
-                print("Failed to deactivate audio session: \(error.localizedDescription)")
+        audioSessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            if self.isAudioSessionActive {
+                do {
+                    try AVAudioSession.sharedInstance().setActive(false, options: [])
+                    self.isAudioSessionActive = false
+                    print("Deactivated audio session due to Bluetooth disconnect")
+                } catch {
+                    print("Failed to deactivate audio session: \(error.localizedDescription)")
+                }
             }
-        }
-        
-        // Immediately reactivate with a brief delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.updateAudioSessionConfiguration()
+            
+            // Immediately reactivate with a brief delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.updateAudioSessionConfiguration()
+            }
         }
     }
 }
