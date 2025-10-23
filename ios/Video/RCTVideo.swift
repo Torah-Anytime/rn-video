@@ -1389,8 +1389,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     private func configureDisplaySleep() {
         if #available(iOS 12.0, tvOS 12.0, *) {
             #if !os(visionOS)
-                _player?.preventsDisplaySleepDuringVideoPlayback =
-                    _preventsDisplaySleepDuringVideoPlayback
+                // Dispatch to background queue to avoid blocking main thread with synchronous XPC call
+                DispatchQueue.global(qos: .utility).async { [weak self] in
+                    guard let self = self else { return }
+                    self._player?.preventsDisplaySleepDuringVideoPlayback =
+                        self._preventsDisplaySleepDuringVideoPlayback
+                }
             #endif
         }
     }
