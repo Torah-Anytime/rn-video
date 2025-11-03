@@ -1214,7 +1214,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
             )
         }
 
-        let currentPlaybackTime = _player?.currentItem?.currentDate()
+        let currentPlaybackTime: Date? = {
+            guard let playerItem = _player?.currentItem,
+                  playerItem.status == .readyToPlay,
+                  !playerItem.isPlaybackLikelyToKeepUp || _isPlaying else {
+                return nil
+            }
+            return playerItem.currentDate()
+        }()
         let duration = CMTimeGetSeconds(playerDuration)
         var currentTimeSecs = CMTimeGetSeconds(currentTime ?? .zero)
 
