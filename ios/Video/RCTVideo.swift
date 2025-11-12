@@ -1080,8 +1080,16 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         change: [NSKeyValueChangeKey: Any]?,
         context: UnsafeMutableRawPointer?
     ) {
-
         if context == &playerContext {
+            if keyPath == #keyPath(AVPlayer.rate),
+               let newRate = change?[.newKey] as? Float,
+               newRate > 0 {
+                _rate = newRate
+                onPlaybackRateChange?([
+                    "playbackRate": NSNumber(value: newRate),
+                    "target": reactTag as Any,
+                ])
+            }
             return
         } else {
             super.observeValue(
@@ -1092,7 +1100,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
             )
         }
     }
-
     private func finalizePlayerSetup() {
         _playerObserver.player = _player
         applyModifiers()
@@ -1214,14 +1221,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
             )
         }
 
-        let currentPlaybackTime: Date? = {
-            guard let playerItem = _player?.currentItem,
-                  playerItem.status == .readyToPlay,
-                  !playerItem.isPlaybackLikelyToKeepUp || _isPlaying else {
-                return nil
-            }
-            return playerItem.currentDate()
-        }()
+        let currentPlaybackTime = _player?.currentItem?.currentDate()
         let duration = CMTimeGetSeconds(playerDuration)
         var currentTimeSecs = CMTimeGetSeconds(currentTime ?? .zero)
 
@@ -1336,15 +1336,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     }
 
     @objc func setRate(_ rate: Float) {
-        if _rate != 1 {
-            _player?.rate = 1
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self._rate = rate
-                self.applyModifiers()
-            }
-        } else {
-            _rate = rate
-            applyModifiers()
+        _rate = rate
+        if _player?.rate != 0 {
+            _player?.rate = rate
         }
     }
 
