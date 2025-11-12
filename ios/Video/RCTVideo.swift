@@ -362,34 +362,65 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
     @objc func _onPictureInPictureEnter() {
         onPictureInPictureStatusChanged?(["isActive": NSNumber(value: true)])
+        
+        // Ensure app goes to background when PIP is active
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            UIApplication.shared.perform(#selector(NSXPCConnection.suspend))
+        }
     }
 
     @objc func _onPictureInPictureExit() {
         onPictureInPictureStatusChanged?(["isActive": NSNumber(value: false)])
 
         let appState = UIApplication.shared.applicationState
+        
+        // Always restore player to views when exiting PIP
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.restorePlayerToViews()
+            
+            // If not paused and app is active, resume playback
+            if appState == .active && !self._paused {
+                self.resumePlayer()
+            }
+        }
+        
+        // Handle background playback case
         if _playInBackground && appState == .background {
-            _playerLayer?.player = nil
-            _playerViewController?.player = nil
             _player?.play()
         }
     }
 
     func handlePictureInPictureEnter() {
         onPictureInPictureStatusChanged?(["isActive": NSNumber(value: true)])
+        
+        // Ensure app goes to background when PIP is active
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            UIApplication.shared.perform(#selector(NSXPCConnection.suspend))
+        }
     }
 
     func handlePictureInPictureExit() {
         onPictureInPictureStatusChanged?(["isActive": NSNumber(value: false)])
 
         let appState = UIApplication.shared.applicationState
+        
+        // Always restore player to views when exiting PIP
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.restorePlayerToViews()
+            
+            // If not paused and app is active, resume playback
+            if appState == .active && !self._paused {
+                self.resumePlayer()
+            }
+        }
+        
+        // Handle background playback case
         if _playInBackground && appState == .background {
-            _playerLayer?.player = nil
-            _playerViewController?.player = nil
             _player?.play()
         }
     }
-
     func handleRestoreUserInterfaceForPictureInPictureStop() {
         onRestoreUserInterfaceForPictureInPictureStop?([:])
     }
@@ -561,6 +592,13 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
     @objc func applicationWillResignActive(notification _: NSNotification!) {
         let isExternalPlaybackActive = getIsExternalPlaybackActive()
+        
+        // If enterPictureInPictureOnLeave is enabled and video is playing, enter PIP
+        if _enterPictureInPictureOnLeave && _isPlaying && !isPictureInPictureActive() {
+            enterPictureInPicture()
+            return // Don't pause, PIP will handle it
+        }
+        
         if _playInBackground || _playWhenInactive || !_isPlaying
             || isExternalPlaybackActive
         {
@@ -571,6 +609,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     }
 
     @objc func applicationDidBecomeActive(notification _: NSNotification!) {
+        // Exit PIP when app comes to foreground
+        if isPictureInPictureActive() {
+            exitPictureInPicture()
+            restorePlayerToViews()
+        }
+        
         let isExternalPlaybackActive = getIsExternalPlaybackActive()
 
         if _playInBackground || _playWhenInactive || !_isPlaying
@@ -581,12 +625,16 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
         resumePlayer()
     }
-
     @objc func applicationDidEnterBackground(notification _: NSNotification!) {
         handleBackgroundTransition()
     }
 
     @objc func applicationWillEnterForeground(notification _: NSNotification!) {
+        // Exit PIP before entering foreground
+        if isPictureInPictureActive() {
+            exitPictureInPicture()
+        }
+        
         handleForegroundTransition()
     }
 
@@ -1887,7 +1935,13 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
                 _playerViewController?.allowsPictureInPicturePlayback = true
             }
         }
+        
         _pip?.enterPictureInPicture()
+        
+        // Background the app after entering PIP
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            UIApplication.shared.perform(#selector(NSXPCConnection.suspend))
+        }
     }
 
     @objc func exitPictureInPicture() {
