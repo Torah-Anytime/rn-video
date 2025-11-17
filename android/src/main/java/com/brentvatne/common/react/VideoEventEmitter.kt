@@ -48,7 +48,7 @@ enum class EventTypes(val eventName: String) {
     companion object {
         fun toMap() =
             mutableMapOf<String, Any>().apply {
-                EventTypes.values().toList().forEach { eventType ->
+                EventTypes.entries.forEach { eventType ->
                     put("top${eventType.eventName.removePrefix("on")}", hashMapOf("registrationName" to eventType.eventName))
                 }
             }
@@ -208,7 +208,7 @@ class VideoEventEmitter {
                 event.dispatch(EventTypes.EVENT_IDLE)
             }
             onTimedMetadata = fn@{ metadataArrayList ->
-                if (metadataArrayList.size == 0) {
+                if (metadataArrayList.isEmpty()) {
                     return@fn
                 }
                 event.dispatch(EventTypes.EVENT_TIMED_METADATA) {
@@ -289,11 +289,19 @@ class VideoEventEmitter {
     }
 
     private class EventBuilder(private val surfaceId: Int, private val viewId: Int, private val dispatcher: EventDispatcher) {
-        fun dispatch(event: EventTypes, paramsSetter: (WritableMap.() -> Unit)? = null) =
-            dispatcher.dispatchEvent(object : Event<Event<*>>(surfaceId, viewId) {
-                override fun getEventName() = "top${event.eventName.removePrefix("on")}"
-                override fun getEventData() = Arguments.createMap().apply(paramsSetter ?: {})
-            })
+        fun dispatch(event: EventTypes, paramsSetter: (WritableMap.() -> Unit)? = null) {
+            dispatcher.dispatchEvent(VideoEvent(surfaceId, viewId, event, paramsSetter))
+        }
+    }
+
+    private class VideoEvent(
+        surfaceId: Int,
+        viewId: Int,
+        private val event: EventTypes,
+        private val paramsSetter: (WritableMap.() -> Unit)?
+    ) : Event<VideoEvent>(surfaceId, viewId) {
+        override fun getEventName() = "top${event.eventName.removePrefix("on")}"
+        override fun getEventData() = Arguments.createMap().apply(paramsSetter ?: {})
     }
 
     private fun audioTracksToArray(audioTracks: java.util.ArrayList<Track>?): WritableArray =
