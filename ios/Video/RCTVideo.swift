@@ -373,20 +373,31 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         onPictureInPictureStatusChanged?(["isActive": NSNumber(value: false)])
 
         let appState = UIApplication.shared.applicationState
+        let wasUserInitiated = !(_pip?.isProgrammaticExit() ?? false)
         
         // Always restore player to views when exiting PIP
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.restorePlayerToViews()
             
-            // If not paused and app is active, resume playback
-            if appState == .active && !self._paused {
+            // If user pressed X button, pause playback
+            if wasUserInitiated {
+                self.pausePlayer()
+                self._paused = true
+                self.onVideoPlaybackStateChanged?([
+                    "isPlaying": false,
+                    "isSeeking": false,
+                    "target": self.reactTag as Any,
+                ])
+            }
+            // If programmatic exit and app is active and not paused, resume playback
+            else if appState == .active && !self._paused {
                 self.resumePlayer()
             }
         }
         
-        // Handle background playback case
-        if _playInBackground && appState == .background {
+        // Handle background playback case - only if not user-initiated
+        if !wasUserInitiated && _playInBackground && appState == .background {
             _player?.play()
         }
     }
@@ -404,20 +415,31 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         onPictureInPictureStatusChanged?(["isActive": NSNumber(value: false)])
 
         let appState = UIApplication.shared.applicationState
+        let wasUserInitiated = !(_pip?.isProgrammaticExit() ?? false)
         
         // Always restore player to views when exiting PIP
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.restorePlayerToViews()
             
-            // If not paused and app is active, resume playback
-            if appState == .active && !self._paused {
+            // If user pressed X button, pause playback
+            if wasUserInitiated {
+                self.pausePlayer()
+                self._paused = true
+                self.onVideoPlaybackStateChanged?([
+                    "isPlaying": false,
+                    "isSeeking": false,
+                    "target": self.reactTag as Any,
+                ])
+            }
+            // If programmatic exit and app is active and not paused, resume playback
+            else if appState == .active && !self._paused {
                 self.resumePlayer()
             }
         }
         
-        // Handle background playback case
-        if _playInBackground && appState == .background {
+        // Handle background playback case - only if not user-initiated
+        if !wasUserInitiated && _playInBackground && appState == .background {
             _player?.play()
         }
     }
