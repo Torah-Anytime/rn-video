@@ -1689,14 +1689,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     }
 
     private func updateFullscreenLayout() {
-        let bounds = UIScreen.main.bounds
-        _playerViewController?.view.frame = bounds
-        _playerViewController?.view.setNeedsLayout()
-        _playerViewController?.view.layoutIfNeeded()
+        guard let playerViewController = _playerViewController else { return }
 
-        _playerViewController?.contentOverlayView?.frame = bounds
-        for subview in _playerViewController?.contentOverlayView?.subviews ?? []
-        {
+        let bounds = UIScreen.main.bounds
+        playerViewController.view.frame = bounds
+        playerViewController.view.setNeedsLayout()
+        playerViewController.view.layoutIfNeeded()
+
+        playerViewController.contentOverlayView?.frame = bounds
+        for subview in playerViewController.contentOverlayView?.subviews ?? [] {
             subview.frame = bounds
         }
     }
@@ -2018,6 +2019,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     override func layoutSubviews() {
         super.layoutSubviews()
 
+        // Completely skip layout handling when in fullscreen - let iOS handle it
+        guard !_fullscreenPlayerPresented else { return }
+
         if _controls, let playerViewController = _playerViewController {
             updatePlayerViewControllerLayout(playerViewController)
         } else {
@@ -2033,7 +2037,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         playerViewController.view.layoutIfNeeded()
 
         playerViewController.contentOverlayView?.frame = bounds
-
         for subview in playerViewController.contentOverlayView?.subviews ?? [] {
             subview.frame = bounds
         }
