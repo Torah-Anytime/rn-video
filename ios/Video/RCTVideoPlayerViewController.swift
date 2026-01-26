@@ -38,15 +38,9 @@ class RCTVideoPlayerViewController: AVPlayerViewController, UIGestureRecognizerD
             return true
         }
 
-        // For pan gestures, check the direction
-        if let pan = gestureRecognizer as? UIPanGestureRecognizer {
-            let velocity = pan.velocity(in: pan.view)
-            let translation = pan.translation(in: pan.view)
-
-            // If primarily horizontal movement, block it
-            if abs(velocity.x) > abs(velocity.y) || abs(translation.x) > abs(translation.y) {
-                return false
-            }
+        // Block all pan gestures
+        if gestureRecognizer is UIPanGestureRecognizer {
+            return false
         }
 
         return true
