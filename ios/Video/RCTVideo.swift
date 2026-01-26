@@ -45,6 +45,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     var _audioOutput: String = "speaker"
     private var _volume: Float = 1.0
     private var _rate: Float = 1.0
+
+    // Public getter for rate (used by NowPlayingInfoCenterManager)
+    func getRate() -> Float {
+        return _rate
+    }
     private var _maxBitRate: Float?
     private var _automaticallyWaitsToMinimizeStalling = true
     private var _allowsExternalPlayback = true
@@ -398,7 +403,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         
         // Handle background playback case - only if not user-initiated
         if !wasUserInitiated && _playInBackground && appState == .background {
-            _player?.play()
+            if #available(iOS 10.0, *), _rate != 1.0 {
+                _player?.playImmediately(atRate: _rate)
+            } else {
+                _player?.play()
+                if _rate != 1.0 {
+                    _player?.rate = _rate
+                }
+            }
         }
     }
 
@@ -440,7 +452,14 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         
         // Handle background playback case - only if not user-initiated
         if !wasUserInitiated && _playInBackground && appState == .background {
-            _player?.play()
+            if #available(iOS 10.0, *), _rate != 1.0 {
+                _player?.playImmediately(atRate: _rate)
+            } else {
+                _player?.play()
+                if _rate != 1.0 {
+                    _player?.rate = _rate
+                }
+            }
         }
     }
     func handleRestoreUserInterfaceForPictureInPictureStop() {
@@ -734,8 +753,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     }
 
     private func resumePlayer() {
-        _player?.play()
-        _player?.rate = _rate
+        // Use atomic API to resume at correct rate
+        if #available(iOS 10.0, *), _rate != 1.0 {
+            _player?.playImmediately(atRate: _rate)
+        } else {
+            _player?.play()
+            if _rate != 1.0 {
+                _player?.rate = _rate
+            }
+        }
     }
 
     private func clearPlayerFromViews() {
@@ -1153,12 +1179,31 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         if context == &playerContext {
             if keyPath == #keyPath(AVPlayer.rate),
                let newRate = change?[.newKey] as? Float,
-               newRate > 0 {
-                _rate = newRate
-                onPlaybackRateChange?([
-                    "playbackRate": NSNumber(value: newRate),
-                    "target": reactTag as Any,
-                ])
+               let oldRate = change?[.oldKey] as? Float {
+
+                // This observer watches for unwanted rate changes (e.g., from AVPlayerViewController controls in PiP)
+                // If the player resumed at the wrong rate (e.g., 1.0 when we want 1.5x), correct it immediately
+                if newRate > 0 && oldRate == 0 {
+                    // Player just resumed from pause
+                    if newRate != _rate && _rate != 0 {
+                        // Wrong rate was applied, correct it immediately
+                        if #available(iOS 10.0, *) {
+                            _player?.playImmediately(atRate: _rate)
+                        } else {
+                            _player?.rate = _rate
+                        }
+                    }
+                }
+
+                // Only update our internal rate if it actually changed to what we expect
+                // Don't let external controls (like PiP buttons) override our desired rate
+                if newRate > 0 && abs(newRate - _rate) < 0.01 {
+                    // Rate is correct, send the event to JavaScript
+                    onPlaybackRateChange?([
+                        "playbackRate": NSNumber(value: newRate),
+                        "target": reactTag as Any,
+                    ])
+                }
             }
             return
         } else {
@@ -1368,6 +1413,16 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
             } else {
                 resumePlayer()
             }
+
+            // Ensure rate is applied after resume with a longer delay
+            // This handles cases where the native player might reset rate
+            if _rate != 1.0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    if self._player?.rate != self._rate {
+                        self._player?.rate = self._rate
+                    }
+                }
+            }
         }
     }
 
@@ -1392,7 +1447,20 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
             guard let self else { return }
 
             self._playerObserver.addTimeObserverIfNotSet()
-            self.setPaused(self._paused)
+
+            // Note: RCTPlayerOperations.seek now handles pause/resume and rate restoration
+            // No need to call setPaused here as it might interfere
+
+            // Safety net: ensure rate is correct after a delay
+            // This handles edge cases where the immediate restoration didn't work
+            if !self._paused && self._rate != 1.0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if self._player?.rate != self._rate {
+                        self._player?.rate = self._rate
+                    }
+                }
+            }
+
             self.onVideoSeek?([
                 "currentTime": NSNumber(
                     value: Float(CMTimeGetSeconds(item.currentTime()))
@@ -1407,9 +1475,12 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
     @objc func setRate(_ rate: Float) {
         _rate = rate
+        // Always apply rate if player is playing (not paused)
+        // This ensures rate changes are applied even during playback
         if _player?.rate != 0 {
             _player?.rate = rate
         }
+        // Note: If paused, rate will be applied by resumePlayer() when playback resumes
     }
 
     @objc func setMuted(_ muted: Bool) {
@@ -2411,9 +2482,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
         _isPlaying = isPlaying
 
-        if _controls {
-            _paused = !isPlaying
-        }
+        // Always sync _paused state when playback state changes
+        // This is needed for PiP mode where controls might pause/resume the player
+        _paused = !isPlaying
 
         onVideoPlaybackStateChanged?([
             "isPlaying": isPlaying,

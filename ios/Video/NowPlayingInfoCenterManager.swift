@@ -237,11 +237,22 @@ class NowPlayingInfoCenterManager {
     // MARK: - Command Target Factories
     private func createPlayTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
         return { [weak self] _ in
-            guard let player = self?.currentPlayer, player.rate == 0 else {
+            guard let self = self, let player = self.currentPlayer, player.rate == 0 else {
                 return .commandFailed
             }
-            player.play()
-            self?.updateNowPlayingInfo()
+
+            // Preserve playback rate when resuming from remote controls
+            let rate = self.currentVideoView?.getRate() ?? 1.0
+            if #available(iOS 10.0, *), rate != 1.0 {
+                player.playImmediately(atRate: rate)
+            } else {
+                player.play()
+                if rate != 1.0 {
+                    player.rate = rate
+                }
+            }
+
+            self.updateNowPlayingInfo()
             return .success
         }
     }
@@ -307,17 +318,26 @@ class NowPlayingInfoCenterManager {
     
     private func createTogglePlayPauseTarget() -> (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus {
         return { [weak self] _ in
-            guard let player = self?.currentPlayer else {
+            guard let self = self, let player = self.currentPlayer else {
                 return .commandFailed
             }
-            
+
             if player.rate == 0 {
-                player.play()
+                // Preserve playback rate when resuming from remote controls
+                let rate = self.currentVideoView?.getRate() ?? 1.0
+                if #available(iOS 10.0, *), rate != 1.0 {
+                    player.playImmediately(atRate: rate)
+                } else {
+                    player.play()
+                    if rate != 1.0 {
+                        player.rate = rate
+                    }
+                }
             } else {
                 player.pause()
             }
-            
-            self?.updateNowPlayingInfo()
+
+            self.updateNowPlayingInfo()
             return .success
         }
     }

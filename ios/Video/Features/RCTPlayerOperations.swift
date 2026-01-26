@@ -144,11 +144,18 @@ enum RCTPlayerOperations {
             return
         }
 
-        if !paused { player.pause() }
+        // DON'T PAUSE - AVPlayer can seek while playing
+        // Save current rate to restore after seek completes
+        let savedRate = player.rate
+        let wasPlaying = savedRate > 0
 
         player.seek(
             to: cmSeekTime, toleranceBefore: tolerance, toleranceAfter: tolerance,
             completionHandler: { (finished: Bool) in
+                // Restore playback rate after seek
+                if wasPlaying && player.rate != savedRate {
+                    player.rate = savedRate
+                }
                 completion(finished)
             }
         )
