@@ -344,18 +344,16 @@ class NowPlayingInfoCenterManager {
     
     // MARK: - Now Playing Info Updates
     private func debouncedUpdateNowPlayingInfo() {
-        timerQueue.async { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
+
             self.updateTimer?.invalidate()
             self.updateTimer = nil
-            
+
             let delay = self.currentVideoView?._isQueueMode == true ? 0.5 : 0.3
-            
+
             self.updateTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.updateNowPlayingInfo()
-                }
+                self?.updateNowPlayingInfo()
             }
         }
     }
