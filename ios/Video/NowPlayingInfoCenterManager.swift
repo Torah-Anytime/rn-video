@@ -20,7 +20,6 @@ class NowPlayingInfoCenterManager {
     private var lastUpdateTime: CFTimeInterval = 0
     private var lastRegistrationTime: CFTimeInterval = 0
     private var updateTimer: Timer?
-    private let timerQueue = DispatchQueue(label: "com.reactnativevideo.nowplaying.timer", qos: .utility)
     
     // Artwork cache
     private var artworkCache: [String: MPMediaItemArtwork] = [:]
@@ -117,7 +116,7 @@ class NowPlayingInfoCenterManager {
     }
     
     private func cleanupTimer() {
-        timerQueue.sync { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             self?.updateTimer?.invalidate()
             self?.updateTimer = nil
         }
