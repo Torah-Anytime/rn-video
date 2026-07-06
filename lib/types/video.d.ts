@@ -8,27 +8,74 @@ import type ViewType from './ViewType';
 export type Headers = Record<string, string>;
 export type EnumValues<T extends string | number> = T extends string ? `${T}` | T : T;
 export type ReactVideoSourceProperties = {
+    /**
+     * URL (or `require()` asset via `ReactVideoSource`) of the media to play.
+     * Supports http(s), file://, asset and raw resource paths. Changing the
+     * uri reloads the media.
+     */
     uri?: string;
+    /**
+     * ⭐ Torah-Anytime fork addition, Android only — route playback through
+     * the shared "central" ExoPlayer instance instead of a per-view player,
+     * so the same playback session survives view remounts and keeps
+     * background audio / notification controls alive. Ignored on iOS (no
+     * native implementation).
+     */
     useCentralPlayer?: boolean;
+    /** Force treating the uri as a network resource (usually auto-detected). */
     isNetwork?: boolean;
+    /** Force treating the uri as an app asset (usually auto-detected). */
     isAsset?: boolean;
+    /** Treat the uri as a local asset file path. */
     isLocalAssetFile?: boolean;
+    /** Android: cache the media (ExoPlayer cache) where supported. */
     shouldCache?: boolean;
+    /**
+     * Override the media container/format inferred from the uri extension,
+     * e.g. `'m3u8'` or `'mpd'` when the URL has no telling extension.
+     */
     type?: string;
+    /** Together with `patchVer`, cache-busting version for Android asset sources. */
     mainVer?: number;
+    /** See `mainVer`. */
     patchVer?: number;
+    /** Extra HTTP headers to send when requesting the media (e.g. auth). */
     headers?: Headers;
+    /**
+     * Start playback at this position in **milliseconds** the first time the
+     * media loads (preferred over seeking after `onLoad`).
+     */
     startPosition?: number;
+    /** Trim: treat this millisecond offset as the start of the media. */
     cropStart?: number;
+    /** Trim: treat this millisecond offset as the end of the media. */
     cropEnd?: number;
+    /**
+     * iOS (dynamic ad insertion): offset in ms where actual content starts,
+     * used when the stream embeds pre-roll ads.
+     */
     contentStartTime?: number;
+    /**
+     * Title/artist/artwork shown in the media notification (Android) and
+     * Now Playing / lock screen (iOS) when `showNotificationControls` is on.
+     */
     metadata?: VideoMetadata;
+    /** DRM configuration (Widevine / FairPlay / PlayReady / ClearKey). */
     drm?: Drm;
+    /** Android: CMCD (Common Media Client Data) reporting configuration. */
     cmcd?: Cmcd;
+    /** Android/HLS: allow preparing without chunkless text tracks. */
     textTracksAllowChunklessPreparation?: boolean;
+    /** Side-loaded subtitle tracks (SRT/TTML/VTT) to offer alongside the media. */
     textTracks?: TextTracks;
+    /** Google IMA ads configuration (ad tag URL, language). */
     ad?: AdConfig;
+    /**
+     * Number of times the native player retries loading before surfacing
+     * `onError`. Useful on flaky mobile connections.
+     */
     minLoadRetryCount?: number;
+    /** Android: ExoPlayer buffer sizing/tuning. */
     bufferConfig?: BufferConfig;
 };
 export type ReactVideoSource = Readonly<Omit<ReactVideoSourceProperties, 'uri'> & {
@@ -38,11 +85,21 @@ export type ReactVideoPosterSource = ImageURISource | ImageRequireSource;
 export type ReactVideoPoster = Omit<ImageProps, 'source'> & {
     source?: ReactVideoPosterSource;
 };
+/**
+ * Metadata for the media notification (Android) and Now Playing info /
+ * lock-screen controls (iOS). Set via `source.metadata`; only used when
+ * `showNotificationControls` is enabled.
+ */
 export type VideoMetadata = Readonly<{
+    /** Main title line (e.g. lecture title). */
     title?: string;
+    /** Second line under the title. */
     subtitle?: string;
+    /** Longer description (Android notification only). */
     description?: string;
+    /** Artist/author line (e.g. speaker name). */
     artist?: string;
+    /** URL of the artwork image shown in the notification / lock screen. */
     imageUri?: string;
 }>;
 export type DebugConfig = Readonly<{
@@ -217,7 +274,25 @@ export interface ReactVideoRenderLoaderProps {
     style?: StyleProp<ImageStyle>;
     resizeMode?: EnumValues<VideoResizeMode>;
 }
+/**
+ * Props for the `<Video>` component (Torah-Anytime/rn-video fork of
+ * react-native-video v6 — ExoPlayer on Android, AVPlayer on iOS).
+ *
+ * Also accepts all `ViewProps` and every playback event in
+ * {@link ReactVideoEvents}. Imperative control (seek, PiP, fullscreen,
+ * source/queue swaps) lives on the `VideoRef` obtained via `ref`.
+ *
+ * Full upstream docs: https://docs.thewidlarzgroup.com/react-native-video/
+ * Props marked ⭐ exist only in the Torah-Anytime fork.
+ */
 export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
+    /**
+     * The media to play: `{ uri, headers?, metadata?, startPosition?, ... }`
+     * or a `require()` asset. Changing it (deep-compared) reloads the media;
+     * to swap media without remounting the native view use
+     * `videoRef.setSource()` instead. See `ReactVideoSourceProperties` for
+     * every option (including the fork-only `useCentralPlayer`).
+     */
     source?: ReactVideoSource;
     /** @deprecated Use source.drm */
     drm?: Drm;
@@ -226,65 +301,184 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
     adTagUrl?: string;
     /** @deprecated Use source.ad.adLanguage */
     adLanguage?: ISO639_1;
+    /** Route audio to `'speaker'` (default) or `'earpiece'`. */
     audioOutput?: AudioOutput;
+    /**
+     * iOS: mirrors `AVPlayer.automaticallyWaitsToMinimizeStalling`. Set
+     * `false` to start playback immediately even if buffering isn't complete
+     * (needed for low-latency live streams). Default `true`.
+     */
     automaticallyWaitsToMinimizeStalling?: boolean;
     /** @deprecated Use source.bufferConfig */
     bufferConfig?: BufferConfig;
+    /**
+     * Android: how ExoPlayer buffers — `Default`, `DisableBuffering`, or
+     * `DependingOnMemory` (backs off allocation under memory pressure).
+     */
     bufferingStrategy?: BufferingStrategyType;
+    /** iOS: chapter markers exposed to the native player UI. */
     chapters?: Chapters[];
     /** @deprecated Use source.contentStartTime */
     contentStartTime?: number;
+    /**
+     * Show the platform's built-in playback controls (ExoPlayer controller /
+     * AVPlayerViewController). Leave off when rendering custom controls —
+     * the two fight over touches.
+     */
     controls?: boolean;
+    /** iOS (live + dynamic ad insertion): current playback time hint in epoch seconds. */
     currentPlaybackTime?: number;
+    /**
+     * Android: when `true` the player does NOT request audio focus, so other
+     * apps' audio keeps playing and this player won't be paused by focus
+     * loss. Also disables the wake-lock the focus request implies.
+     */
     disableFocus?: boolean;
+    /**
+     * Android: don't surface an error (and kill playback) when the network
+     * drops — keep the player alive and let it retry/rebuffer.
+     */
     disableDisconnectError?: boolean;
+    /** iOS: CoreImage filter to apply (local, non-HLS media only). */
     filter?: EnumValues<FilterType>;
+    /** iOS: master switch for `filter`. */
     filterEnabled?: boolean;
+    /** Android: whether the view is focusable (TV / d-pad navigation). */
     focusable?: boolean;
+    /**
+     * Declaratively enter/exit native fullscreen. Prefer driving this (or
+     * `videoRef.setFullScreen`) and listening to the
+     * `onFullscreenPlayer*` events to keep app state in sync.
+     */
     fullscreen?: boolean;
+    /** iOS: allow autorotation while in native fullscreen. Default `true`. */
     fullscreenAutorotate?: boolean;
+    /** iOS: orientation forced in native fullscreen: `all` | `landscape` | `portrait`. */
     fullscreenOrientation?: EnumValues<FullscreenOrientationType>;
+    /**
+     * Android: hide the black "shutter" view shown between source changes /
+     * before the first frame renders. Useful to avoid a black flash when
+     * swapping sources.
+     */
     hideShutterView?: boolean;
+    /**
+     * iOS: behavior under the hardware mute switch — `'ignore'` keeps
+     * playing audio with the switch on (right for speech/lecture content),
+     * `'obey'` silences, `'inherit'` (default) uses the AVAudioSession as-is.
+     */
     ignoreSilentSwitch?: EnumValues<IgnoreSilentSwitchType>;
     /** @deprecated Use source.minLoadRetryCount */
     minLoadRetryCount?: number;
+    /** Cap adaptive-streaming bitrate, in bits/sec (0 = no cap). */
     maxBitRate?: number;
+    /**
+     * iOS: how this player's audio coexists with other apps' audio —
+     * `'mix'` (play over), `'duck'` (lower others), `'inherit'` (default).
+     * Requires an appropriate `disableFocus` setting on Android instead.
+     */
     mixWithOthers?: EnumValues<MixWithOthersType>;
+    /** Mute audio without stopping playback. */
     muted?: boolean;
+    /**
+     * Declarative play/pause — the primary playback switch. `true` pauses,
+     * `false` plays. For one-off imperative control (e.g. from outside
+     * React) `videoRef.pause()`/`resume()` exist, but they don't update
+     * this prop's owning state.
+     */
     paused?: boolean;
+    /**
+     * Automatically enter Picture-in-Picture when the user leaves the app
+     * (home swipe / app switch) while playing. iOS 14.2+ / Android 12+.
+     */
     enterPictureInPictureOnLeave?: boolean;
+    /**
+     * Keep playing (audio) when the app is backgrounded. iOS requires the
+     * `audio` UIBackgroundMode; video content continues as audio-only until
+     * the app returns.
+     */
     playInBackground?: boolean;
+    /**
+     * iOS: keep playing when the app is "inactive" — notification center or
+     * control center pulled over the app.
+     */
     playWhenInactive?: boolean;
+    /** Image shown until the first video frame; a uri string or full poster config. */
     poster?: string | ReactVideoPoster;
     /** @deprecated use **resizeMode** key in **poster** props instead */
     posterResizeMode?: EnumValues<PosterResizeModeType>;
+    /** iOS: seconds of media to buffer ahead (0 = let AVPlayer decide). */
     preferredForwardBufferDuration?: number;
+    /** Keep the screen awake while video plays. Default `true`. */
     preventsDisplaySleepDuringVideoPlayback?: boolean;
+    /**
+     * Milliseconds between `onProgress` events. Default 250. Lower it for
+     * fine-grained position tracking (clip boundaries, scrubbers); raise it
+     * to cut JS-thread traffic.
+     */
     progressUpdateInterval?: number;
+    /**
+     * Playback speed multiplier: 1.0 normal, 0.5–2.0 typical range.
+     * Note: the native player reports rate 0 while paused/buffering via
+     * `onPlaybackRateChange` — don't mirror that back into this prop.
+     */
     rate?: number;
+    /** Custom loading UI rendered while the media loads (replaces poster logic). */
     renderLoader?: ReactNode | ((arg0: ReactVideoRenderLoaderProps) => ReactNode);
+    /** Loop playback when the media ends (suppresses `onEnd`-driven advance). */
     repeat?: boolean;
+    /** Android: enable `onBandwidthUpdate` events with measured bandwidth. */
     reportBandwidth?: boolean;
+    /**
+     * How the video fills its view: `'none'`, `'contain'` (letterbox),
+     * `'cover'` (crop), or `'stretch'` (distort — safe when the view already
+     * matches the media's aspect ratio exactly).
+     */
     resizeMode?: EnumValues<VideoResizeMode>;
+    /**
+     * Show system media controls: media-session notification on Android,
+     * Now Playing / lock-screen controls on iOS. Title/artist/artwork come
+     * from `source.metadata`.
+     */
     showNotificationControls?: boolean;
+    /** Select an audio track by system/disabled/title/language/index. */
     selectedAudioTrack?: SelectedTrack;
+    /** Select a subtitle track by system/disabled/title/language/index. */
     selectedTextTrack?: SelectedTrack;
+    /** Select a video quality/track by auto/disabled/resolution/index. */
     selectedVideoTrack?: SelectedVideoTrack;
+    /** Android: styling for rendered subtitles. */
     subtitleStyle?: SubtitleStyle;
+    /** Android: color of the shutter view (default black). See `hideShutterView`. */
     shutterColor?: string;
     /** @deprecated Use source.textTracks */
     textTracks?: TextTracks;
     testID?: string;
+    /**
+     * Android: which native view hosts the video — `TEXTURE` (TextureView:
+     * animatable/transformable, no secure playback) or `SURFACE`
+     * (SurfaceView: cheaper, required for DRM) or `SURFACE_SECURE`.
+     */
     viewType?: ViewType;
     /** @deprecated Use viewType */
     useTextureView?: boolean;
     /** @deprecated Use viewType*/
     useSecureView?: boolean;
+    /** Playback volume 0.0–1.0 (independent of device volume). */
     volume?: number;
     /** @deprecated use **localSourceEncryptionKeyScheme** key in **drm** props instead */
     localSourceEncryptionKeyScheme?: string;
+    /** Enable verbose native logging (`{ enable, thread }`). */
     debug?: DebugConfig;
+    /**
+     * iOS: allow AirPlay/external playback of the video. `false` keeps
+     * playback on-device (audio can still route to external outputs).
+     */
     allowsExternalPlayback?: boolean;
+    /** Android: fine-tune which buttons/bars the native controls show (`controls` must be on). */
     controlsStyles?: ControlsStyles;
+    /**
+     * iOS: don't let the library configure/activate the shared
+     * AVAudioSession — the app takes full responsibility for it.
+     */
     disableAudioSessionManagement?: boolean;
 }

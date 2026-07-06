@@ -207,37 +207,113 @@ export type OnReceiveAdEventData = Readonly<{
      */
      | 'VOLUME_MUTED', 'AD_BREAK_ENDED'>;
 }>;
+/**
+ * Playback event callbacks accepted by `<Video>` (all optional).
+ * Events marked ⭐ exist only in the Torah-Anytime fork.
+ */
 export interface ReactVideoEvents {
+    /**
+     * Android: audio is about to play through the device speaker because the
+     * output route disappeared (headphones unplugged, Bluetooth dropped).
+     * Conventionally used to pause playback.
+     */
     onAudioBecomingNoisy?: () => void;
+    /**
+     * Android: system audio focus gained/lost (`e.hasAudioFocus`) — e.g.
+     * another app started playing. Only fires when the player requests
+     * focus (`disableFocus` not set).
+     */
     onAudioFocusChanged?: (e: OnAudioFocusChangedData) => void;
+    /** Android: the player entered the idle state (no media / stopped). */
     onIdle?: () => void;
+    /** Android: measured network bandwidth (requires `reportBandwidth`). */
     onBandwidthUpdate?: (e: OnBandwidthUpdateData) => void;
+    /** Buffering started/stopped (`e.isBuffering`) — drive spinners from this. */
     onBuffer?: (e: OnBufferData) => void;
+    /** Native controls were shown or hidden (requires `controls`). */
     onControlsVisibilityChange?: (e: OnControlsVisibilityChange) => void;
+    /** Playback reached the end of the media (not fired when `repeat` loops). */
     onEnd?: () => void;
+    /**
+     * Fatal playback error — media failed to load or playback died.
+     * `e.error` carries the platform error details. The player will not
+     * recover on its own; reload/replace the source.
+     */
     onError?: (e: OnVideoErrorData) => void;
+    /** iOS: AirPlay/external playback started or stopped. */
     onExternalPlaybackChange?: (e: OnExternalPlaybackChangeData) => void;
+    /** Native fullscreen is about to be presented. */
     onFullscreenPlayerWillPresent?: () => void;
+    /** Native fullscreen finished presenting. */
     onFullscreenPlayerDidPresent?: () => void;
+    /** Native fullscreen is about to be dismissed. */
     onFullscreenPlayerWillDismiss?: () => void;
+    /** Native fullscreen finished dismissing — restore inline layout here. */
     onFullscreenPlayerDidDismiss?: () => void;
+    /**
+     * Media loaded and is playable: `e.duration`, `e.currentTime`,
+     * `e.naturalSize` (intrinsic dimensions/orientation) and the available
+     * audio/text/video tracks.
+     */
     onLoad?: (e: OnLoadData) => void;
+    /** The player started loading a (new) source — earliest "loading" signal. */
     onLoadStart?: (e: OnLoadStartData) => void;
+    /** Picture-in-Picture started/stopped (`e.isActive`). */
     onPictureInPictureStatusChanged?: (e: OnPictureInPictureStatusChangedData) => void;
+    /**
+     * The native playback rate changed (`e.playbackRate`). Note: rate `0`
+     * means paused/buffering and non-zero means playing — it is NOT only
+     * fired for `rate`-prop changes.
+     */
     onPlaybackRateChange?: (e: OnPlaybackRateChangeData) => void;
+    /** Player volume changed (`e.volume`). */
     onVolumeChange?: (e: OnVolumeChangeData) => void;
+    /**
+     * Periodic position tick, every `progressUpdateInterval` ms while
+     * playing: `e.currentTime`, `e.playableDuration`, `e.seekableDuration`
+     * (seconds). This is the backbone of progress bars and resume state.
+     */
     onProgress?: (e: OnProgressData) => void;
+    /** First video frame is ready to display — good moment to hide posters. */
     onReadyForDisplay?: () => void;
+    /** Google IMA ad lifecycle events (see `OnReceiveAdEventData.event`). */
     onReceiveAdEvent?: (e: OnReceiveAdEventData) => void;
+    /**
+     * iOS: user tapped "return to app" from PiP and AVKit is waiting for the
+     * app to restore its UI. You MUST call
+     * `videoRef.restoreUserInterfaceForPictureInPictureStopCompleted(true)`
+     * when done, or the player stays frozen.
+     */
     onRestoreUserInterfaceForPictureInPictureStop?: () => void;
+    /** A seek completed: `e.currentTime` (landed) and `e.seekTime` (requested). */
     onSeek?: (e: OnSeekData) => void;
+    /**
+     * Playing/paused/seeking state changed at the native layer
+     * (`e.isPlaying`, `e.isSeeking`) — fires for lock-screen/notification
+     * and PiP controls too, so use it to keep app state in sync with
+     * playback the user triggered outside the app's UI. CAUTION: also fires
+     * `isPlaying: false` during rebuffering stalls — guard before treating
+     * it as a user pause.
+     */
     onPlaybackStateChanged?: (e: OnPlaybackStateChangedData) => void;
+    /** Timed/ID3 metadata encountered in the stream. */
     onTimedMetadata?: (e: OnTimedMetadataData) => void;
+    /** Available audio tracks changed/known. */
     onAudioTracks?: (e: OnAudioTracksData) => void;
+    /** Available subtitle tracks changed/known. */
     onTextTracks?: (e: OnTextTracksData) => void;
+    /** Android: active subtitle text changed (for custom subtitle rendering). */
     onTextTrackDataChanged?: (e: OnTextTrackDataChangedData) => void;
+    /** Available video quality tracks changed/known. */
     onVideoTracks?: (e: OnVideoTracksData) => void;
+    /** The media's aspect ratio is known/changed (`e.width`, `e.height`). */
     onAspectRatio?: (e: OnVideoAspectRatioData) => void;
+    /**
+     * ⭐ Torah-Anytime fork, iOS: user pressed "next track" on the lock
+     * screen / control center / headphones. The app decides what "next"
+     * means (e.g. play the next lecture).
+     */
     onNextTrack?: () => void;
+    /** ⭐ Torah-Anytime fork, iOS: "previous track" remote command. See `onNextTrack`. */
     onPreviousTrack?: () => void;
 }
