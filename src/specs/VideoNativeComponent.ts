@@ -208,6 +208,8 @@ export type OnSeekData = Readonly<{
 export type OnPlaybackStateChangedData = Readonly<{
   isPlaying: boolean;
   isSeeking: boolean;
+  playWhenReady?: boolean;
+  isPhoneCallActive?: boolean;
 }>;
 
 export type OnTimedMetadataData = Readonly<{

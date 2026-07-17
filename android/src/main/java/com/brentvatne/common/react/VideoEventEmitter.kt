@@ -70,7 +70,12 @@ class VideoEventEmitter {
     lateinit var onVideoError: (errorString: String, exception: Exception, errorCode: String) -> Unit
     lateinit var onVideoProgress: (currentPosition: Long, bufferedDuration: Long, seekableDuration: Long, currentPlaybackTime: Double) -> Unit
     lateinit var onVideoBandwidthUpdate: (bitRateEstimate: Long, height: Int, width: Int, trackId: String?) -> Unit
-    lateinit var onVideoPlaybackStateChanged: (isPlaying: Boolean, isSeeking: Boolean) -> Unit
+    lateinit var onVideoPlaybackStateChanged: (
+        isPlaying: Boolean,
+        isSeeking: Boolean,
+        playWhenReady: Boolean,
+        isPhoneCallActive: Boolean
+    ) -> Unit
     lateinit var onVideoSeek: (currentPosition: Long, seekTime: Long) -> Unit
     lateinit var onVideoEnd: () -> Unit
     lateinit var onVideoFullscreenPlayerWillPresent: () -> Unit
@@ -164,10 +169,12 @@ class VideoEventEmitter {
                     trackId?.let { putString("trackId", it) }
                 }
             }
-            onVideoPlaybackStateChanged = { isPlaying, isSeeking ->
+            onVideoPlaybackStateChanged = { isPlaying, isSeeking, playWhenReady, isPhoneCallActive ->
                 event.dispatch(EventTypes.EVENT_PLAYBACK_STATE_CHANGED) {
                     putBoolean("isPlaying", isPlaying)
                     putBoolean("isSeeking", isSeeking)
+                    putBoolean("playWhenReady", playWhenReady)
+                    putBoolean("isPhoneCallActive", isPhoneCallActive)
                 }
             }
             onVideoSeek = { currentPosition, seekTime ->

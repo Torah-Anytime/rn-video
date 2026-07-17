@@ -268,6 +268,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private final TelephonyManager telephonyManager;
     private final Object phoneStateListener; // Can be PhoneStateListener or TelephonyCallback
     private boolean wasPlayingBeforeCall = false;
+    private boolean isPhoneCallActive = false;
 
 
     // store last progress event values to avoid sending unnecessary messages
@@ -1508,12 +1509,13 @@ public class ReactExoplayerView extends FrameLayout implements
 
         switch (state) {
             case TelephonyManager.CALL_STATE_RINGING:
+                isPhoneCallActive = true;
                 // Incoming call - emit event to JavaScript
                 if (videoManager != null) {
                     videoManager.emitPhoneCallStateEvent("Incoming");
                 }
                 // Also pause video if playing (fallback behavior)
-                if (player != null && player.isPlaying()) {
+                if (!wasPlayingBeforeCall && player != null && player.getPlayWhenReady()) {
                     wasPlayingBeforeCall = true;
                     if (activity != null) {
                         activity.runOnUiThread(this::pausePlayback);
@@ -1521,12 +1523,13 @@ public class ReactExoplayerView extends FrameLayout implements
                 }
                 break;
             case TelephonyManager.CALL_STATE_OFFHOOK:
+                isPhoneCallActive = true;
                 // Call answered - emit event to JavaScript
                 if (videoManager != null) {
                     videoManager.emitPhoneCallStateEvent("Answered");
                 }
                 // Also pause video if playing (fallback behavior)
-                if (player != null && player.isPlaying()) {
+                if (!wasPlayingBeforeCall && player != null && player.getPlayWhenReady()) {
                     wasPlayingBeforeCall = true;
                     if (activity != null) {
                         activity.runOnUiThread(this::pausePlayback);
@@ -1534,6 +1537,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 }
                 break;
             case TelephonyManager.CALL_STATE_IDLE:
+                isPhoneCallActive = false;
                 // Call ended - emit event to JavaScript
                 if (videoManager != null) {
                     if (wasPlayingBeforeCall) {
@@ -1542,15 +1546,8 @@ public class ReactExoplayerView extends FrameLayout implements
                         videoManager.emitPhoneCallStateEvent("Missed");
                     }
                 }
-                // Resume video if was playing before call and not manually paused (fallback behavior)
-                if (wasPlayingBeforeCall && player != null && !isPaused) {
-                    wasPlayingBeforeCall = false;
-                    if (activity != null) {
-                        activity.runOnUiThread(() -> setPlayWhenReady(true));
-                    }
-                } else {
-                    wasPlayingBeforeCall = false;
-                }
+                // JavaScript is the single authority for resuming after calls.
+                wasPlayingBeforeCall = false;
                 break;
             default:
                 break;
@@ -2054,6 +2051,16 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     @Override
+    public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+        eventEmitter.onVideoPlaybackStateChanged.invoke(
+                player != null && player.isPlaying(),
+                isSeeking,
+                playWhenReady,
+                isPhoneCallActive
+        );
+    }
+
+    @Override
     public void onIsPlayingChanged(boolean isPlaying) {
         if (isPlaying && isSeeking) {
             eventEmitter.onVideoSeek.invoke(player.getCurrentPosition(), seekPosition);
@@ -2061,7 +2068,12 @@ public class ReactExoplayerView extends FrameLayout implements
         if (enterPictureInPictureOnLeave) {
             PictureInPictureUtil.applyPlayingStatus(themedReactContext, pictureInPictureParamsBuilder, pictureInPictureReceiver, !isPlaying);
         }
-        eventEmitter.onVideoPlaybackStateChanged.invoke(isPlaying, isSeeking);
+        eventEmitter.onVideoPlaybackStateChanged.invoke(
+                isPlaying,
+                isSeeking,
+                player.getPlayWhenReady(),
+                isPhoneCallActive
+        );
 
         if (isPlaying) {
             isSeeking = false;
