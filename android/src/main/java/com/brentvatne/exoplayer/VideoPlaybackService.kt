@@ -8,12 +8,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
@@ -22,12 +24,16 @@ import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionCommand
 import com.brentvatne.common.toolbox.DebugLog
 import com.brentvatne.react.R
+import com.google.common.util.concurrent.FutureCallback
+import com.google.common.util.concurrent.Futures
 import okhttp3.internal.immutableListOf
 
 class PlaybackServiceBinder(val service: VideoPlaybackService) : Binder()
 
 class VideoPlaybackService : MediaSessionService() {
     private var mediaSessionsList = mutableMapOf<ExoPlayer, MediaSession>()
+    private val artworkRequestVersions = mutableMapOf<MediaSession, Long>()
+    private var nextArtworkRequestVersion = 0L
     private var binder = PlaybackServiceBinder(this)
     private var sourceActivity: Class<Activity>? = null
 
@@ -80,6 +86,7 @@ class VideoPlaybackService : MediaSessionService() {
     fun unregisterPlayer(player: ExoPlayer) {
         Log.i(TAG,"Player $player released from $this")
         val session = mediaSessionsList.remove(player)
+        session?.let { artworkRequestVersions.remove(it) }
         session?.release()
         if (mediaSessionsList.isEmpty()) {
             Log.d(TAG,"MSL is empty")
@@ -146,93 +153,146 @@ class VideoPlaybackService : MediaSessionService() {
     }
 
     private fun buildNotification(session: MediaSession): Notification {
-        val returnToPlayer = Intent(this, sourceActivity ?: this.javaClass).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-
         /*
          * On Android 13+ controls are automatically handled via media session
          * On Android 12 and bellow we need to add controls manually
          */
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val returnToPlayer = Intent(this, sourceActivity ?: this.javaClass).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
             NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID)
                 .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
                 .setStyle(MediaStyleNotificationHelper.MediaStyle(session))
                 .setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
                 .build()
         } else {
-            val playerId = session.player.hashCode()
-
-            // Action for COMMAND.SEEK_BACKWARD
-            val seekBackwardIntent = Intent(this, VideoPlaybackService::class.java).apply {
-                putExtra("PLAYER_ID", playerId)
-                putExtra("ACTION", COMMAND.SEEK_BACKWARD.stringValue)
-            }
-            val seekBackwardPendingIntent = PendingIntent.getService(
-                this,
-                playerId * 10,
-                seekBackwardIntent,
-                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            buildPreTiramisuNotification(
+                session,
+                getArtworkOrScheduleNotificationUpdate(session)
             )
-
-            // ACTION FOR COMMAND.TOGGLE_PLAY
-            val togglePlayIntent = Intent(this, VideoPlaybackService::class.java).apply {
-                putExtra("PLAYER_ID", playerId)
-                putExtra("ACTION", COMMAND.TOGGLE_PLAY.stringValue)
-            }
-            val togglePlayPendingIntent = PendingIntent.getService(
-                this,
-                playerId * 10 + 1,
-                togglePlayIntent,
-                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-
-            // ACTION FOR COMMAND.SEEK_FORWARD
-            val seekForwardIntent = Intent(this, VideoPlaybackService::class.java).apply {
-                putExtra("PLAYER_ID", playerId)
-                putExtra("ACTION", COMMAND.SEEK_FORWARD.stringValue)
-            }
-            val seekForwardPendingIntent = PendingIntent.getService(
-                this,
-                playerId * 10 + 2,
-                seekForwardIntent,
-                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-
-            NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID)
-                // Show controls on lock screen even when user hides sensitive content.
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
-                // Add media control buttons that invoke intents in your media service
-                .addAction(androidx.media3.session.R.drawable.media3_icon_rewind, "Seek Backward", seekBackwardPendingIntent) // #0
-                .addAction(
-                    if (session.player.isPlaying) {
-                        androidx.media3.session.R.drawable.media3_icon_pause
-                    } else {
-                        androidx.media3.session.R.drawable.media3_icon_play
-                    },
-                    "Toggle Play",
-                    togglePlayPendingIntent
-                ) // #1
-                .addAction(androidx.media3.session.R.drawable.media3_icon_fast_forward, "Seek Forward", seekForwardPendingIntent) // #2
-                // Apply the media style template
-                .setStyle(MediaStyleNotificationHelper.MediaStyle(session).setShowActionsInCompactView(0, 1, 2))
-                .setContentTitle(session.player.mediaMetadata.title)
-                .setContentText(session.player.mediaMetadata.description)
-                .setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-                .setLargeIcon(
-                    try {
-                        session.player.mediaMetadata.artworkUri?.let { uri ->
-                            session.bitmapLoader.loadBitmap(uri).get()
-                        }
-                    } catch (e: Exception) {
-                        DebugLog.w(TAG, "Failed to load artwork for notification: ${e.message}")
-                        null
-                    }
-                )
-                .setOngoing(true)
-                .build()
         }
+    }
+
+    private fun getArtworkOrScheduleNotificationUpdate(session: MediaSession): Bitmap? {
+        val requestVersion = ++nextArtworkRequestVersion
+        artworkRequestVersions.remove(session)
+
+        val artworkUri = session.player.mediaMetadata.artworkUri ?: return null
+        val bitmapFuture = session.bitmapLoader.loadBitmap(artworkUri)
+        if (bitmapFuture.isDone) {
+            return try {
+                Futures.getDone(bitmapFuture)
+            } catch (e: Exception) {
+                DebugLog.w(TAG, "Failed to load artwork for notification: ${e.message}")
+                null
+            }
+        }
+
+        artworkRequestVersions[session] = requestVersion
+        Futures.addCallback(
+            bitmapFuture,
+            object : FutureCallback<Bitmap> {
+                override fun onSuccess(bitmap: Bitmap?) {
+                    if (bitmap == null ||
+                        artworkRequestVersions[session] != requestVersion ||
+                        mediaSessionsList.values.none { it === session } ||
+                        session.player.mediaMetadata.artworkUri != artworkUri
+                    ) {
+                        return
+                    }
+
+                    artworkRequestVersions.remove(session)
+                    val notificationManager =
+                        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    notificationManager.notify(
+                        session.player.hashCode(),
+                        buildPreTiramisuNotification(session, bitmap)
+                    )
+                }
+
+                override fun onFailure(throwable: Throwable) {
+                    if (artworkRequestVersions[session] == requestVersion) {
+                        artworkRequestVersions.remove(session)
+                        DebugLog.w(TAG, "Failed to load artwork for notification: ${throwable.message}")
+                    }
+                }
+            },
+            ContextCompat.getMainExecutor(this)
+        )
+
+        return null
+    }
+
+    private fun buildPreTiramisuNotification(
+        session: MediaSession,
+        artwork: Bitmap?
+    ): Notification {
+        val returnToPlayer = Intent(this, sourceActivity ?: this.javaClass).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val playerId = session.player.hashCode()
+
+        // Action for COMMAND.SEEK_BACKWARD
+        val seekBackwardIntent = Intent(this, VideoPlaybackService::class.java).apply {
+            putExtra("PLAYER_ID", playerId)
+            putExtra("ACTION", COMMAND.SEEK_BACKWARD.stringValue)
+        }
+        val seekBackwardPendingIntent = PendingIntent.getService(
+            this,
+            playerId * 10,
+            seekBackwardIntent,
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        // ACTION FOR COMMAND.TOGGLE_PLAY
+        val togglePlayIntent = Intent(this, VideoPlaybackService::class.java).apply {
+            putExtra("PLAYER_ID", playerId)
+            putExtra("ACTION", COMMAND.TOGGLE_PLAY.stringValue)
+        }
+        val togglePlayPendingIntent = PendingIntent.getService(
+            this,
+            playerId * 10 + 1,
+            togglePlayIntent,
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        // ACTION FOR COMMAND.SEEK_FORWARD
+        val seekForwardIntent = Intent(this, VideoPlaybackService::class.java).apply {
+            putExtra("PLAYER_ID", playerId)
+            putExtra("ACTION", COMMAND.SEEK_FORWARD.stringValue)
+        }
+        val seekForwardPendingIntent = PendingIntent.getService(
+            this,
+            playerId * 10 + 2,
+            seekForwardIntent,
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        return NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID)
+            // Show controls on lock screen even when user hides sensitive content.
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
+            // Add media control buttons that invoke intents in your media service
+            .addAction(androidx.media3.session.R.drawable.media3_icon_rewind, "Seek Backward", seekBackwardPendingIntent) // #0
+            .addAction(
+                if (session.player.isPlaying) {
+                    androidx.media3.session.R.drawable.media3_icon_pause
+                } else {
+                    androidx.media3.session.R.drawable.media3_icon_play
+                },
+                "Toggle Play",
+                togglePlayPendingIntent
+            ) // #1
+            .addAction(androidx.media3.session.R.drawable.media3_icon_fast_forward, "Seek Forward", seekForwardPendingIntent) // #2
+            // Apply the media style template
+            .setStyle(MediaStyleNotificationHelper.MediaStyle(session).setShowActionsInCompactView(0, 1, 2))
+            .setContentTitle(session.player.mediaMetadata.title)
+            .setContentText(session.player.mediaMetadata.description)
+            .setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            .setLargeIcon(artwork)
+            .setOngoing(true)
+            .build()
     }
 
     private fun hidePlayerNotification(player: ExoPlayer) {
@@ -249,6 +309,7 @@ class VideoPlaybackService : MediaSessionService() {
     }
 
     private fun cleanup() {
+        artworkRequestVersions.clear()
         hideAllNotifications()
         mediaSessionsList.forEach { (_, session) ->
             session.release()

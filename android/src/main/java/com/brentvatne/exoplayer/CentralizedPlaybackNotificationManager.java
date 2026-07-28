@@ -9,6 +9,8 @@ import android.app.UiModeManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -18,6 +20,7 @@ import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 import androidx.media3.common.Player;
 import androidx.media3.session.CommandButton;
 import androidx.media3.session.MediaSession;
@@ -27,8 +30,12 @@ import androidx.media3.session.SessionCommand;
 
 import com.brentvatne.react.R;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -75,6 +82,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     private Player player = null;
     private MediaSession mediaSession = null;
     private boolean isForegroundServiceActive = false;
+    private long artworkRequestVersion = 0;
 
     /**
      * Sets up notification management for the specified player.
@@ -144,7 +152,8 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
     public boolean onUnbind(Intent intent) {
         Log.d(TAG, "CPNM Unbind");
         if(mediaSession!=null){
-        removeSession(mediaSession);
+            artworkRequestVersion++;
+            removeSession(mediaSession);
         }
         stopSelf();
         return super.onUnbind(intent);
@@ -161,6 +170,7 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
         }
 
         super.onDestroy();
+        artworkRequestVersion++;
         removePreviousNotification();
         this.mediaSession = null;
         this.player = null;
@@ -344,48 +354,102 @@ public class CentralizedPlaybackNotificationManager extends MediaSessionService 
      *
      * @param mediaSession The MediaSession to build notification for
      * @return A configured media notification
-     * @throws ExecutionException   if bitmap loading fails
-     * @throws InterruptedException if bitmap loading is interrupted
      */
-    private Notification buildNotification(MediaSession mediaSession) throws ExecutionException, InterruptedException {
-
+    private Notification buildNotification(MediaSession mediaSession) {
         Intent returnToPlayer = new Intent(this, this.getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return new NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID).setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play).setStyle(new MediaStyleNotificationHelper.MediaStyle(mediaSession)).setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).build();
-        } else {
-
-            int playerId = mediaSession.getPlayer().hashCode();
-
-            // Action for Command.SEEK_BACKWARD
-            Intent seekBackwardIntent = new Intent(this, VideoPlaybackService.class);
-            seekBackwardIntent.putExtra("PLAYER_ID", playerId);
-            seekBackwardIntent.putExtra("ACTION", Command.SEEK_BACKWARD.stringValue);
-            PendingIntent seekBackwardPendingIntent = PendingIntent.getService(this, playerId * 10, seekBackwardIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-
-            // ACTION FOR Command.TOGGLE_PLAY
-            Intent togglePlayIntent = new Intent(this, VideoPlaybackService.class);
-            togglePlayIntent.putExtra("PLAYER_ID", playerId);
-            togglePlayIntent.putExtra("ACTION", Command.TOGGLE_PLAY.stringValue);
-            PendingIntent togglePlayPendingIntent = PendingIntent.getService(this, playerId * 10 + 1, togglePlayIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-
-            // ACTION FOR Command.SEEK_FORWARD
-            Intent seekForwardIntent = new Intent(this, VideoPlaybackService.class);
-            seekForwardIntent.putExtra("PLAYER_ID", playerId);
-            seekForwardIntent.putExtra("ACTION", Command.SEEK_FORWARD.stringValue);
-            PendingIntent seekForwardPendingIntent = PendingIntent.getService(this, playerId * 10 + 2, seekForwardIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-
-            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID)
-                    // Show controls on lock screen even when user hides sensitive content.
-                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
-                    // Add media control buttons that invoke intents in your media service
-                    .addAction(androidx.media3.session.R.drawable.media3_icon_rewind, "Seek Backward", seekBackwardPendingIntent) // #0
-                    .addAction(mediaSession.getPlayer().isPlaying() ? androidx.media3.session.R.drawable.media3_icon_pause : androidx.media3.session.R.drawable.media3_icon_play, "Toggle Play", togglePlayPendingIntent) // #1
-                    .addAction(androidx.media3.session.R.drawable.media3_icon_fast_forward, "Seek Forward", seekForwardPendingIntent) // #2
-                    // Apply the media style template
-                    .setStyle(new MediaStyleNotificationHelper.MediaStyle(mediaSession).setShowActionsInCompactView(0, 1, 2)).setContentTitle(mediaSession.getPlayer().getMediaMetadata().title).setContentText(mediaSession.getPlayer().getMediaMetadata().description).setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).setLargeIcon(mediaSession.getPlayer().getMediaMetadata().artworkUri != null ? mediaSession.getBitmapLoader().loadBitmap(mediaSession.getPlayer().getMediaMetadata().artworkUri).get() : null).setOngoing(true);
-            return builder.build();
         }
+
+        return buildPreTiramisuNotification(
+                mediaSession,
+                getArtworkOrScheduleNotificationUpdate(mediaSession)
+        );
+    }
+
+    @Nullable
+    private Bitmap getArtworkOrScheduleNotificationUpdate(MediaSession mediaSession) {
+        long requestVersion = ++artworkRequestVersion;
+        Uri artworkUri = mediaSession.getPlayer().getMediaMetadata().artworkUri;
+        if (artworkUri == null) {
+            return null;
+        }
+
+        ListenableFuture<Bitmap> bitmapFuture = mediaSession.getBitmapLoader().loadBitmap(artworkUri);
+        if (bitmapFuture.isDone()) {
+            try {
+                return Futures.getDone(bitmapFuture);
+            } catch (CancellationException | ExecutionException e) {
+                Log.w(TAG, "Failed to load artwork for notification", e);
+                return null;
+            }
+        }
+
+        Futures.addCallback(bitmapFuture, new FutureCallback<Bitmap>() {
+            @Override
+            public void onSuccess(Bitmap bitmap) {
+                if (requestVersion != artworkRequestVersion ||
+                        CentralizedPlaybackNotificationManager.this.mediaSession != mediaSession ||
+                        !artworkUri.equals(mediaSession.getPlayer().getMediaMetadata().artworkUri) ||
+                        !shouldShowNotification()) {
+                    return;
+                }
+
+                NotificationManager manager =
+                        (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                manager.notify(
+                        mediaSession.getPlayer().hashCode(),
+                        buildPreTiramisuNotification(mediaSession, bitmap)
+                );
+            }
+
+            @Override
+            public void onFailure(@NonNull Throwable throwable) {
+                if (requestVersion == artworkRequestVersion) {
+                    Log.w(TAG, "Failed to load artwork for notification", throwable);
+                }
+            }
+        }, ContextCompat.getMainExecutor(this));
+
+        return null;
+    }
+
+    private Notification buildPreTiramisuNotification(
+            MediaSession mediaSession,
+            @Nullable Bitmap artwork
+    ) {
+        Intent returnToPlayer = new Intent(this, this.getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        int playerId = mediaSession.getPlayer().hashCode();
+
+        // Action for Command.SEEK_BACKWARD
+        Intent seekBackwardIntent = new Intent(this, VideoPlaybackService.class);
+        seekBackwardIntent.putExtra("PLAYER_ID", playerId);
+        seekBackwardIntent.putExtra("ACTION", Command.SEEK_BACKWARD.stringValue);
+        PendingIntent seekBackwardPendingIntent = PendingIntent.getService(this, playerId * 10, seekBackwardIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        // ACTION FOR Command.TOGGLE_PLAY
+        Intent togglePlayIntent = new Intent(this, VideoPlaybackService.class);
+        togglePlayIntent.putExtra("PLAYER_ID", playerId);
+        togglePlayIntent.putExtra("ACTION", Command.TOGGLE_PLAY.stringValue);
+        PendingIntent togglePlayPendingIntent = PendingIntent.getService(this, playerId * 10 + 1, togglePlayIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        // ACTION FOR Command.SEEK_FORWARD
+        Intent seekForwardIntent = new Intent(this, VideoPlaybackService.class);
+        seekForwardIntent.putExtra("PLAYER_ID", playerId);
+        seekForwardIntent.putExtra("ACTION", Command.SEEK_FORWARD.stringValue);
+        PendingIntent seekForwardPendingIntent = PendingIntent.getService(this, playerId * 10 + 2, seekForwardIntent, PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+        return new NotificationCompat.Builder(this, NOTIFICATION_CHANEL_ID)
+                // Show controls on lock screen even when user hides sensitive content.
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
+                // Add media control buttons that invoke intents in your media service
+                .addAction(androidx.media3.session.R.drawable.media3_icon_rewind, "Seek Backward", seekBackwardPendingIntent) // #0
+                .addAction(mediaSession.getPlayer().isPlaying() ? androidx.media3.session.R.drawable.media3_icon_pause : androidx.media3.session.R.drawable.media3_icon_play, "Toggle Play", togglePlayPendingIntent) // #1
+                .addAction(androidx.media3.session.R.drawable.media3_icon_fast_forward, "Seek Forward", seekForwardPendingIntent) // #2
+                // Apply the media style template
+                .setStyle(new MediaStyleNotificationHelper.MediaStyle(mediaSession).setShowActionsInCompactView(0, 1, 2)).setContentTitle(mediaSession.getPlayer().getMediaMetadata().title).setContentText(mediaSession.getPlayer().getMediaMetadata().description).setContentIntent(PendingIntent.getActivity(this, 0, returnToPlayer, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE)).setLargeIcon(artwork).setOngoing(true)
+                .build();
     }
 
     /**
