@@ -147,6 +147,7 @@ import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -229,7 +230,7 @@ public class ReactExoplayerView extends FrameLayout implements
     private Runnable pipListenerUnsubscribe;
     private boolean useCache = false;
     private ControlsConfig controlsConfig = new ControlsConfig();
-    private ArrayList<Integer> rootViewChildrenOriginalVisibility = new ArrayList<>();
+    private final Map<View, Integer> rootViewChildrenOriginalVisibility = new IdentityHashMap<>();
 
     /*
      * When user is seeking first called is on onPositionDiscontinuity -> DISCONTINUITY_REASON_SEEK
@@ -2555,7 +2556,7 @@ public class ReactExoplayerView extends FrameLayout implements
                     for (int i = 0; i < rootView.getChildCount(); i++) {
                         View child = rootView.getChildAt(i);
                         if (child != exoPlayerView) {
-                            rootViewChildrenOriginalVisibility.add(child.getVisibility());
+                            rootViewChildrenOriginalVisibility.put(child, child.getVisibility());
                             child.setVisibility(View.GONE);
                         }
                     }
@@ -2582,17 +2583,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 ViewParent currentParent = exoPlayerView.getParent();
 
                 // Restore visibility of other views
-                if (!rootViewChildrenOriginalVisibility.isEmpty()) {
-                    int childCount = Math.min(rootView.getChildCount(), rootViewChildrenOriginalVisibility.size());
-                    for (int i = 0; i < childCount; i++) {
-                        View childToRestore = rootView.getChildAt(i);
-                        if (childToRestore != null && childToRestore != exoPlayerView) {
-                            int originalVisibility = rootViewChildrenOriginalVisibility.get(i);
-                            childToRestore.setVisibility(originalVisibility);
-                        }
-                    }
-                    rootViewChildrenOriginalVisibility.clear();
-                }
+                restoreRootViewChildrenVisibility();
 
                 // Only move if we're not already in the correct parent
                 if (currentParent != this) {
@@ -2630,6 +2621,11 @@ public class ReactExoplayerView extends FrameLayout implements
         }
     }
 
+    private void restoreRootViewChildrenVisibility() {
+        rootViewChildrenOriginalVisibility.forEach(View::setVisibility);
+        rootViewChildrenOriginalVisibility.clear();
+    }
+
 
     public void enterPictureInPictureMode() {
         PictureInPictureParams _pipParams = null;
@@ -2654,13 +2650,8 @@ public class ReactExoplayerView extends FrameLayout implements
         View decorView = currentActivity.getWindow().getDecorView();
         ViewGroup rootView = decorView.findViewById(android.R.id.content);
 
-        if (!rootViewChildrenOriginalVisibility.isEmpty()) {
-            if (exoPlayerView.getParent().equals(rootView)) rootView.removeView(exoPlayerView);
-            for (int i = 0; i < rootView.getChildCount(); i++) {
-                rootView.getChildAt(i).setVisibility(rootViewChildrenOriginalVisibility.get(i));
-            }
-            rootViewChildrenOriginalVisibility.clear();
-        }
+        if (exoPlayerView.getParent() == rootView) rootView.removeView(exoPlayerView);
+        restoreRootViewChildrenVisibility();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && currentActivity.isInPictureInPictureMode()) {
             currentActivity.moveTaskToBack(false);
