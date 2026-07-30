@@ -69,6 +69,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
+import java.util.function.IntSupplier;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 
@@ -233,10 +237,30 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
         Log.d(TAG, "CentralizedPlaybackManager destroyed");
     }
 
-    private Object convertToMainThreadTask(Supplier<Object> operation) {
+    private boolean convertToMainThreadTask(BooleanSupplier operation) {
+        return convertToMainThreadTask(operation::getAsBoolean, false);
+    }
+
+    private double convertToMainThreadTask(DoubleSupplier operation) {
+        return convertToMainThreadTask(operation::getAsDouble, 0d);
+    }
+
+    private int convertToMainThreadTask(IntSupplier operation) {
+        return convertToMainThreadTask(operation::getAsInt, 0);
+    }
+
+    private long convertToMainThreadTask(LongSupplier operation) {
+        return convertToMainThreadTask(operation::getAsLong, 0L);
+    }
+
+    private <T> T convertToMainThreadTask(Supplier<T> operation) {
+        return convertToMainThreadTask(operation, null);
+    }
+
+    private <T> T convertToMainThreadTask(Supplier<T> operation, T fallback) {
         try {
             CountDownLatch lock = new CountDownLatch(1);
-            AtomicReference<Object> result = new AtomicReference<>();
+            AtomicReference<T> result = new AtomicReference<>();
             mainHandler.post(() -> {
                 result.set(operation.get());
                 lock.countDown();
@@ -247,8 +271,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
                 throw new InterruptedException("Timed out when communicating with internal player");
             return result.get();
         } catch (InterruptedException e) {
-            Log.e(TAG, "Interrupted when contacting CentralPlaybackManager internal player: " + e.getMessage() + ", returning null");
-            return new Object();
+            Log.e(TAG, "Interrupted when contacting CentralPlaybackManager internal player: " + e.getMessage() + ", returning fallback");
+            return fallback;
         }
     }
 
