@@ -93,6 +93,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     private Player.Listener notificationsBindingListener = null;
     private CentralizedPlaybackNotificationManager.CPNMBinder cpnmBinder = null;
     private ServiceConnection notificationServiceConnection = null;
+    private boolean notificationServiceBound = false;
 
 
     //===== Initialization =====
@@ -162,19 +163,24 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             public void onMediaItemTransition(@Nullable MediaItem mediaItem, int reason) {
                 synchronized (notificationsLock) {
                     if (mediaItem == null) {
-                        unbindService(notificationServiceConnection);
-                        notificationServiceConnection = null;
+                        unbindNotificationService();
                     } else if (notificationServiceConnection == null) {
                         // Build the notification manager
                         notificationServiceConnection = new ServiceConnection() {
                             @Override
                             public void onServiceConnected(ComponentName name, IBinder service) {
-                                cpnmBinder = (CentralizedPlaybackNotificationManager.CPNMBinder) service;
-                                cpnmBinder.manager.setup(player);
+                                synchronized (notificationsLock) {
+                                    if (notificationServiceConnection != this) return;
+                                    cpnmBinder = (CentralizedPlaybackNotificationManager.CPNMBinder) service;
+                                    cpnmBinder.manager.setup(player);
+                                }
                             }
 
                             @Override
                             public void onServiceDisconnected(ComponentName name) {
+                                synchronized (notificationsLock) {
+                                    if (notificationServiceConnection == this) cpnmBinder = null;
+                                }
                             }
                         };
                         Intent intent = new Intent(getApplicationContext(), CentralizedPlaybackNotificationManager.class);
@@ -192,7 +198,8 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
                         } else {
                             flags = Context.BIND_AUTO_CREATE;
                         }
-                        bindService(intent, notificationServiceConnection, flags);
+                        notificationServiceBound = bindService(intent, notificationServiceConnection, flags);
+                        if (!notificationServiceBound) notificationServiceConnection = null;
                     }
                 }
 
@@ -200,6 +207,16 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
             }
         };
         player.addListener(this.notificationsBindingListener);
+    }
+
+    private void unbindNotificationService() {
+        if (!notificationServiceBound) return;
+
+        ServiceConnection connection = notificationServiceConnection;
+        notificationServiceBound = false;
+        notificationServiceConnection = null;
+        cpnmBinder = null;
+        if (connection != null) unbindService(connection);
     }
 
     @Nullable
@@ -214,7 +231,7 @@ public class CentralizedPlaybackManager extends Service implements ExoPlayer {
     public boolean onUnbind(Intent intent) {
         Log.d(TAG, "Unbinding client to CentralizedPlaybackManager");
         synchronized (notificationsLock) {
-            if (notificationServiceConnection != null) unbindService(notificationServiceConnection);
+            unbindNotificationService();
             player.removeListener(notificationsBindingListener);
         }
         return false;
