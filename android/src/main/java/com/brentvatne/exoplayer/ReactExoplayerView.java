@@ -268,6 +268,7 @@ public class ReactExoplayerView extends FrameLayout implements
     //private final AudioManager.OnAudioFocusChangeListener audioFocusChangeListener;
     private final TelephonyManager telephonyManager;
     private final Object phoneStateListener; // Can be PhoneStateListener or TelephonyCallback
+    private boolean isPhoneStateListenerRegistered = false;
     private boolean wasPlayingBeforeCall = false;
     private boolean isPhoneCallActive = false;
 
@@ -420,12 +421,11 @@ public class ReactExoplayerView extends FrameLayout implements
 
     @Override
     public void onHostDestroy() {
-        // Unregister phone state listener on destroy
-        unregisterPhoneStateListener();
         cleanUpResources();
     }
 
     public void cleanUpResources() {
+        unregisterPhoneStateListener();
         stopPlayback();
         themedReactContext.removeLifecycleEventListener(this);
         releasePlayer();
@@ -1556,7 +1556,7 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private void registerPhoneStateListener() {
-        if (telephonyManager == null || phoneStateListener == null) {
+        if (telephonyManager == null || phoneStateListener == null || isPhoneStateListenerRegistered) {
             return;
         }
 
@@ -1583,6 +1583,7 @@ public class ReactExoplayerView extends FrameLayout implements
                         PhoneStateListener.LISTEN_CALL_STATE
                 );
             }
+            isPhoneStateListenerRegistered = true;
         } catch (SecurityException e) {
             // READ_PHONE_STATE permission not granted (fallback)
             VideoManagerModule videoManager = VideoManagerModule.getInstance();
@@ -1593,7 +1594,7 @@ public class ReactExoplayerView extends FrameLayout implements
     }
 
     private void unregisterPhoneStateListener() {
-        if (telephonyManager == null || phoneStateListener == null) {
+        if (telephonyManager == null || phoneStateListener == null || !isPhoneStateListenerRegistered) {
             return;
         }
 
@@ -1603,6 +1604,7 @@ public class ReactExoplayerView extends FrameLayout implements
             } else {
                 telephonyManager.listen((PhoneStateListener) phoneStateListener, PhoneStateListener.LISTEN_NONE);
             }
+            isPhoneStateListenerRegistered = false;
         } catch (SecurityException e) {
             // Permission not granted, nothing to unregister
         }
