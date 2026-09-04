@@ -1724,7 +1724,6 @@ public class ReactExoplayerView extends FrameLayout implements
                     break;
                 case Player.STATE_READY:
                     text += "ready";
-                    eventEmitter.onReadyForDisplay.invoke();
                     onBuffering(false);
                     clearProgressMessageHandler(); // ensure there is no other message
                     startProgressHandler();
@@ -2041,6 +2040,13 @@ public class ReactExoplayerView extends FrameLayout implements
         eventEmitter.onTextTracks.invoke(getTextTrackInfo());
         eventEmitter.onAudioTracks.invoke(getAudioTrackInfo());
         eventEmitter.onVideoTracks.invoke(getVideoTrackInfo());
+    }
+
+    @Override
+    public void onRenderedFirstFrame() {
+        // STATE_READY only means playback can start. Wait for the renderer so
+        // JavaScript posters can be removed even when the first frame is paused.
+        eventEmitter.onReadyForDisplay.invoke();
     }
 
     @Override

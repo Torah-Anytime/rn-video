@@ -303,7 +303,11 @@ export interface ReactVideoEvents {
    * (seconds). This is the backbone of progress bars and resume state.
    */
   onProgress?: (e: OnProgressData) => void; //All
-  /** First video frame is ready to display — good moment to hide posters. */
+  /**
+   * First video frame is ready to display — good moment to hide posters.
+   * Android: renderer onRenderedFirstFrame, including paused first frames.
+   * iOS: AVPlayerLayer readyForDisplay.
+   */
   onReadyForDisplay?: () => void; //Android, iOS
   /** Google IMA ad lifecycle events (see `OnReceiveAdEventData.event`). */
   onReceiveAdEvent?: (e: OnReceiveAdEventData) => void; //Android, iOS
