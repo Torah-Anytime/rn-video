@@ -1139,8 +1139,6 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
     private func updateExistingPlayer(with playerItem: AVPlayerItem) {
         _player?.replaceCurrentItem(with: playerItem)
 
-        addUnwantedResumeObservers()
-
         if _showNotificationControls {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self, let player = self._player else { return }
@@ -1160,59 +1158,43 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
     private func addUnwantedResumeObservers() {
         guard let player = _player else { return }
-        player.addObserver(
-            self,
-            forKeyPath: #keyPath(AVPlayer.rate),
-            options: [.new, .old],
-            context: &playerContext
-        )
+        // Token-based so repeated calls replace rather than stack, and the observation is
+        // removed when this view deallocates. A leftover addObserver(self, ...) registration
+        // crashes on older iOS (reproduced on 17) once the AVPlayer outlives the view:
+        // EXC_BAD_ACCESS in KVO_IS_RETAINING_ALL_OBSERVERS_OF_THIS_OBJECT_IF_IT_CRASHES_...
+        _playerRateObserver = player.observe(\.rate, options: [.new, .old]) {
+            [weak self] _, change in
+            guard let newRate = change.newValue, let oldRate = change.oldValue
+            else { return }
+            self?.handleUnwantedRateChange(newRate: newRate, oldRate: oldRate)
+        }
     }
 
-    private var playerContext = 0
+    private var _playerRateObserver: NSKeyValueObservation?
 
-    override func observeValue(
-        forKeyPath keyPath: String?,
-        of object: Any?,
-        change: [NSKeyValueChangeKey: Any]?,
-        context: UnsafeMutableRawPointer?
-    ) {
-        if context == &playerContext {
-            if keyPath == #keyPath(AVPlayer.rate),
-               let newRate = change?[.newKey] as? Float,
-               let oldRate = change?[.oldKey] as? Float {
-
-                // This observer watches for unwanted rate changes (e.g., from AVPlayerViewController controls in PiP)
-                // If the player resumed at the wrong rate (e.g., 1.0 when we want 1.5x), correct it immediately
-                if newRate > 0 && oldRate == 0 {
-                    // Player just resumed from pause
-                    if newRate != _rate && _rate != 0 {
-                        // Wrong rate was applied, correct it immediately
-                        if #available(iOS 10.0, *) {
-                            _player?.playImmediately(atRate: _rate)
-                        } else {
-                            _player?.rate = _rate
-                        }
-                    }
-                }
-
-                // Only update our internal rate if it actually changed to what we expect
-                // Don't let external controls (like PiP buttons) override our desired rate
-                if newRate > 0 && abs(newRate - _rate) < 0.01 {
-                    // Rate is correct, send the event to JavaScript
-                    onPlaybackRateChange?([
-                        "playbackRate": NSNumber(value: newRate),
-                        "target": reactTag as Any,
-                    ])
+    private func handleUnwantedRateChange(newRate: Float, oldRate: Float) {
+        // This observer watches for unwanted rate changes (e.g., from AVPlayerViewController controls in PiP)
+        // If the player resumed at the wrong rate (e.g., 1.0 when we want 1.5x), correct it immediately
+        if newRate > 0 && oldRate == 0 {
+            // Player just resumed from pause
+            if newRate != _rate && _rate != 0 {
+                // Wrong rate was applied, correct it immediately
+                if #available(iOS 10.0, *) {
+                    _player?.playImmediately(atRate: _rate)
+                } else {
+                    _player?.rate = _rate
                 }
             }
-            return
-        } else {
-            super.observeValue(
-                forKeyPath: keyPath,
-                of: object,
-                change: change,
-                context: context
-            )
+        }
+
+        // Only update our internal rate if it actually changed to what we expect
+        // Don't let external controls (like PiP buttons) override our desired rate
+        if newRate > 0 && abs(newRate - _rate) < 0.01 {
+            // Rate is correct, send the event to JavaScript
+            onPlaybackRateChange?([
+                "playbackRate": NSNumber(value: newRate),
+                "target": reactTag as Any,
+            ])
         }
     }
     private func finalizePlayerSetup() {
@@ -2147,12 +2129,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
 
         if let player = _player {
             player.pause()
-            player.removeObserver(
-                self,
-                forKeyPath: #keyPath(AVPlayer.rate),
-                context: &playerContext
-            )
         }
+        _playerRateObserver?.invalidate()
+        _playerRateObserver = nil
 
         cleanupNowPlaying()
 
