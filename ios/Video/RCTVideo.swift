@@ -1660,6 +1660,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate,
         viewController.rctDelegate = self
         viewController.preferredOrientation = _fullscreenOrientation
         viewController.view.frame = bounds
+        #if !os(tvOS) && !os(visionOS)
+            if #available(iOS 16.0, macCatalyst 18.0, *) {
+                // Live Text frame analysis KVO-observes currentItem.videoComposition and
+                // throws NSInternalInconsistencyException when the item is replaced.
+                // Disable before attaching the player so it never starts observing.
+                // https://github.com/TheWidlarzGroup/react-native-video/issues/3900
+                viewController.allowsVideoFrameAnalysis = false
+            }
+        #endif
         viewController.player = player
 
         if #available(iOS 16.0, tvOS 16.0, *) {
